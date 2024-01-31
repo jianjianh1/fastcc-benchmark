@@ -36,6 +36,12 @@ public:
     }
     return true;
   }
+  void free() {
+    if (coords != NULL) {
+      delete[] coords;
+      coords = NULL;
+    }
+  }
 };
 
 template <> struct std::hash<CoOrdinate> {
@@ -115,10 +121,14 @@ public:
   //     }
   //   }
   // }
-  float get_valat(CoOrdinate &&coords) {
+  float get_valat(CoOrdinate coords) {
     for (auto &nnz : nonzeros) {
-      if (nnz.get_coords() == coords) {
+      auto this_coords = nnz.get_coords();
+      if (this_coords == coords) {
+        this_coords.free();
         return nnz.get_data();
+      } else {
+        this_coords.free();
       }
     }
     return -1;
@@ -134,6 +144,7 @@ public:
       auto ref = indexed_tensor.find(filtered_coords);
       if (ref != indexed_tensor.end()) {
         ref->second += 1;
+        filtered_coords.free();
       } else {
         indexed_tensor[filtered_coords] = 1;
       }

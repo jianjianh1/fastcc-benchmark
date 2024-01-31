@@ -49,8 +49,12 @@ void dense_gemm_count() {
       for (int j = 0; j < 5; j++) {
         int left[2] = {i, j};
         int right[2] = {j, k};
-        accum += counter.mul(A.get_valat(CoOrdinate(2, left)),
-                             B.get_valat(CoOrdinate(2, right)));
+        auto leftcord = CoOrdinate(2, left);
+        auto rightcord = CoOrdinate(2, right);
+
+        accum += counter.mul(A.get_valat(leftcord), B.get_valat(rightcord));
+        leftcord.free();
+        rightcord.free();
       }
     }
   }
@@ -91,8 +95,12 @@ void sparse_gemm_count() {
       for (int j = 0; j < 5; j++) {
         int left[2] = {i, j};
         int right[2] = {j, k};
-        float left_val = A.get_valat(CoOrdinate(2, left));
-        float right_val = B.get_valat(CoOrdinate(2, right));
+        auto leftcord = CoOrdinate(2, left);
+        auto rightcord = CoOrdinate(2, right);
+        float left_val = A.get_valat(leftcord);
+        float right_val = B.get_valat(rightcord);
+        leftcord.free();
+        rightcord.free();
         if (left_val != -1 && right_val != -1)
           accum += counter.mul(left_val, right_val);
         // accum += counter.mul(A.get_valat(CoOrdinate(2, left)),
@@ -106,17 +114,19 @@ void sparse_gemm_count() {
 }
 
 void fourd_tensor_contraction() {
+  const int NNZ_COUNT = 5000;
+  const int NUM_CONTR = 4;
   // I(7, 11, 9, 11) = T0(7, 11, 10, 12, 9) * T1(7, 11, 10, 12, 11);
   int a_shape[5] = {7, 11, 10, 12, 9};
   int b_shape[5] = {7, 11, 10, 12, 11};
-  Tensor A(100);
+  Tensor A(NNZ_COUNT);
   int a_ctr = 0;
   for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 11; j++) {
       for (int k = 0; k < 10; k++) {
         for (int l = 0; l < 12; l++) {
           for (int m = 0; m < 9; m++) {
-            if (a_ctr == 100)
+            if (a_ctr == NNZ_COUNT)
               break;
 
             int coords[5] = {i, j, k, l, m};
@@ -127,14 +137,14 @@ void fourd_tensor_contraction() {
       }
     }
   }
-  Tensor B(100);
+  Tensor B(NNZ_COUNT);
   int b_ctr = 0;
   for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 11; j++) {
       for (int k = 0; k < 10; k++) {
         for (int l = 0; l < 12; l++) {
           for (int m = 0; m < 11; m++) {
-            if (b_ctr == 100)
+            if (b_ctr == NNZ_COUNT)
               break;
 
             int coords[5] = {i, j, k, l, m};
@@ -145,14 +155,19 @@ void fourd_tensor_contraction() {
       }
     }
   }
-  int left_contr[2] = {2, 3};
-  int right_contr[2] = {2, 3};
+  int left_contr[NUM_CONTR] = {0, 1, 2, 3};
+  int right_contr[NUM_CONTR] = {0, 1, 2, 3};
+  //int left_contr[2] = {2, 3};
+  //int right_contr[2] = {2, 3};
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
-  int num_mults = A.count_ops(B, 2, left_contr, right_contr);
+  int num_mults = A.count_ops(B, NUM_CONTR, left_contr, right_contr);
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
-  std::cout << "Time taken for count_ops " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << std::endl;
+  std::cout
+      << "Time taken for count_ops "
+      << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+      << std::endl;
   FlopCounter<float> counter;
   for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 11; j++) {
@@ -163,8 +178,12 @@ void fourd_tensor_contraction() {
             for (int n = 0; n < 12; n++) {
               int left[5] = {i, j, m, n, k};
               int right[5] = {i, j, m, n, l};
-              float left_val = A.get_valat(CoOrdinate(5, left));
-              float right_val = B.get_valat(CoOrdinate(5, right));
+              auto leftcord = CoOrdinate(5, left);
+              auto rightcord = CoOrdinate(5, right);
+              float left_val = A.get_valat(leftcord);
+              float right_val = B.get_valat(rightcord);
+              leftcord.free();
+              rightcord.free();
               if (left_val != -1 && right_val != -1)
                 accum += counter.mul(left_val, right_val);
             }
@@ -178,7 +197,7 @@ void fourd_tensor_contraction() {
 }
 
 int main() {
-  dense_gemm_count();
-  sparse_gemm_count();
+  // dense_gemm_count();
+  //  sparse_gemm_count();
   fourd_tensor_contraction();
 }
