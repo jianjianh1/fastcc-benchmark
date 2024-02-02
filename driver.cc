@@ -39,9 +39,7 @@ void dense_gemm_count() {
     }
   }
 
-  int left_contr[1] = {1};
-  int right_contr[1] = {0};
-  int num_mults = A.count_ops(B, 1, left_contr, right_contr);
+  int num_mults = A.count_ops(B, CoOrdinate({1}), CoOrdinate({0}));
   FlopCounter<float> counter;
   for (int i = 0; i < 2; i++) {
     for (int k = 0; k < 2; k++) {
@@ -53,14 +51,51 @@ void dense_gemm_count() {
         auto rightcord = CoOrdinate(2, right);
 
         accum += counter.mul(A.get_valat(leftcord), B.get_valat(rightcord));
-        leftcord.free();
-        rightcord.free();
       }
     }
   }
   assert(counter.get_mults() == num_mults);
   std::cout << "Count using FlopCounter " << counter.get_mults() << std::endl;
   std::cout << "Count using HT " << num_mults << std::endl;
+}
+
+void dense_gemm_shape() {
+  // C(2, 2) = A(2, 5) * B(5, 2);
+  int a_shape[2] = {2, 5};
+  int b_shape[2] = {5, 2};
+  Tensor A(10);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 5; j++) {
+      int coords[2] = {i, j};
+      A.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+    }
+  }
+  Tensor B(10);
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 2; j++) {
+      int coords[2] = {i, j};
+      B.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+    }
+  }
+
+  auto output_coordinates = A.output_shape(B, CoOrdinate({1}), CoOrdinate({}),
+                                           CoOrdinate({0}), CoOrdinate({}));
+  std::unordered_set<CoOrdinate> ground_truth;
+  for (int i = 0; i < 2; i++) {
+    for (int k = 0; k < 2; k++) {
+      int temparr[2] = {i, k};
+      auto this_coord = CoOrdinate(2, temparr);
+      ground_truth.insert(this_coord);
+    }
+  }
+  std::vector<CoOrdinate> difference;
+  for (auto &coord : output_coordinates) {
+    std::cout << coord.get_index(0) << " " << coord.get_index(1) << std::endl;
+    if (ground_truth.find(coord) == ground_truth.end()) {
+      difference.push_back(coord);
+    }
+  }
+  assert(difference.size() == 0);
 }
 
 void sparse_gemm_count() {
@@ -85,9 +120,7 @@ void sparse_gemm_count() {
       B.get_nonzeros().push_back(NNZ(1.0, 2, coords));
     }
   }
-  int left_contr[1] = {1};
-  int right_contr[1] = {0};
-  int num_mults = A.count_ops(B, 1, left_contr, right_contr);
+  int num_mults = A.count_ops(B, CoOrdinate({1}), CoOrdinate({0}));
   FlopCounter<float> counter;
   for (int i = 0; i < 2; i++) {
     for (int k = 0; k < 2; k++) {
@@ -99,18 +132,56 @@ void sparse_gemm_count() {
         auto rightcord = CoOrdinate(2, right);
         float left_val = A.get_valat(leftcord);
         float right_val = B.get_valat(rightcord);
-        leftcord.free();
-        rightcord.free();
         if (left_val != -1 && right_val != -1)
           accum += counter.mul(left_val, right_val);
-        // accum += counter.mul(A.get_valat(CoOrdinate(2, left)),
-        //                      B.get_valat(CoOrdinate(2, right)));
       }
     }
   }
   assert(counter.get_mults() == num_mults);
   std::cout << "Count using FlopCounter " << counter.get_mults() << std::endl;
   std::cout << "Count using HT " << num_mults << std::endl;
+}
+
+void sparse_gemm_shape() {
+  // C(2, 2) = A(2, 5) * B(5, 2);
+  int a_shape[2] = {2, 5};
+  int b_shape[2] = {5, 2};
+  Tensor A(10);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 5; j++) {
+      if (j % 2 != i)
+        continue;
+      int coords[2] = {i, j};
+      A.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+    }
+  }
+  Tensor B(10);
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 2; j++) {
+      if (j % 2 == i)
+        continue;
+      int coords[2] = {i, j};
+      B.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+    }
+  }
+  auto output_coordinates = A.output_shape(B, CoOrdinate({1}), CoOrdinate({}),
+                                           CoOrdinate({0}), CoOrdinate({}));
+  std::unordered_set<CoOrdinate> ground_truth;
+  for (int i = 0; i < 2; i++) {
+    for (int k = 0; k < 2; k++) {
+      int temparr[2] = {i, k};
+      auto this_coord = CoOrdinate(2, temparr);
+      ground_truth.insert(this_coord);
+    }
+  }
+  std::vector<CoOrdinate> difference;
+  for (auto &coord : output_coordinates) {
+    std::cout << coord.get_index(0) << " " << coord.get_index(1) << std::endl;
+    if (ground_truth.find(coord) == ground_truth.end()) {
+      difference.push_back(coord);
+    }
+  }
+  assert(difference.size() == 0);
 }
 
 void fourd_tensor_contraction() {
@@ -155,13 +226,11 @@ void fourd_tensor_contraction() {
       }
     }
   }
-  int left_contr[NUM_CONTR] = {0, 1, 2, 3};
-  int right_contr[NUM_CONTR] = {0, 1, 2, 3};
-  //int left_contr[2] = {2, 3};
-  //int right_contr[2] = {2, 3};
+  auto left_c = CoOrdinate({0, 1, 2, 3});
+  auto right_c = CoOrdinate({0, 1, 2, 3});
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
-  int num_mults = A.count_ops(B, NUM_CONTR, left_contr, right_contr);
+  int num_mults = A.count_ops(B, left_c, right_c);
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
   std::cout
@@ -182,8 +251,6 @@ void fourd_tensor_contraction() {
               auto rightcord = CoOrdinate(5, right);
               float left_val = A.get_valat(leftcord);
               float right_val = B.get_valat(rightcord);
-              leftcord.free();
-              rightcord.free();
               if (left_val != -1 && right_val != -1)
                 accum += counter.mul(left_val, right_val);
             }
@@ -196,8 +263,106 @@ void fourd_tensor_contraction() {
   std::cout << "Count using HT " << num_mults << std::endl;
 }
 
+void fourd_tensor_contraction_shape() {
+  const int NNZ_COUNT = 5000;
+  // I(7, 11, 9, 11) = T0(7, 11, 10, 12, 9) * T1(7, 11, 10, 12, 11);
+  int a_shape[5] = {7, 11, 10, 12, 9};
+  int b_shape[5] = {7, 11, 10, 12, 11};
+  Tensor A(NNZ_COUNT);
+  int a_ctr = 0;
+  for (int i = 0; i < 7; i++) {
+    for (int j = 0; j < 11; j++) {
+      for (int k = 0; k < 10; k++) {
+        for (int l = 0; l < 12; l++) {
+          for (int m = 0; m < 9; m++) {
+            if (a_ctr == NNZ_COUNT)
+              break;
+
+            int coords[5] = {i, j, k, l, m};
+            A.get_nonzeros().push_back(NNZ(1.0, 5, coords));
+            a_ctr++;
+          }
+        }
+      }
+    }
+  }
+  Tensor B(NNZ_COUNT);
+  int b_ctr = 0;
+  for (int i = 0; i < 7; i++) {
+    for (int j = 0; j < 11; j++) {
+      for (int k = 0; k < 10; k++) {
+        for (int l = 0; l < 12; l++) {
+          for (int m = 0; m < 11; m++) {
+            if (b_ctr == NNZ_COUNT)
+              break;
+
+            int coords[5] = {i, j, k, l, m};
+            B.get_nonzeros().push_back(NNZ(1.0, 5, coords));
+            b_ctr++;
+          }
+        }
+      }
+    }
+  }
+  auto left_c = CoOrdinate({2, 3});
+  auto left_batch = CoOrdinate({0, 1});
+  auto right_c = CoOrdinate({2, 3});
+  auto right_batch = CoOrdinate({0, 1});
+  std::chrono::high_resolution_clock::time_point t1 =
+      std::chrono::high_resolution_clock::now();
+  auto output_coordinates =
+      A.output_shape(B, left_c, left_batch, right_c, right_batch);
+  std::chrono::high_resolution_clock::time_point t2 =
+      std::chrono::high_resolution_clock::now();
+  std::cout
+      << "Time taken for get_contraction_shape "
+      << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+      << std::endl;
+
+  std::unordered_set<CoOrdinate> ground_truth;
+  for (int i = 0; i < 7; i++) {
+    for (int j = 0; j < 11; j++) {
+      for (int k = 0; k < 9; k++) {
+        for (int l = 0; l < 11; l++) {
+          for (int m = 0; m < 10; m++) {
+            for (int n = 0; n < 12; n++) {
+              int left[5] = {i, j, m, n, k};
+              int right[5] = {i, j, m, n, l};
+              auto leftcord = CoOrdinate(5, left);
+              auto rightcord = CoOrdinate(5, right);
+              float left_val = A.get_valat(leftcord);
+              float right_val = B.get_valat(rightcord);
+              if (left_val != -1 && right_val != -1)
+                ground_truth.insert(CoOrdinate({i, j, k, l}));
+            }
+          }
+        }
+      }
+    }
+  }
+  std::vector<CoOrdinate> outp_minus_ground;
+  for (auto &coord : output_coordinates) {
+    // std::cout << coord.get_index(0) << " " << coord.get_index(1) <<
+    // std::endl;
+    if (ground_truth.find(coord) == ground_truth.end()) {
+      outp_minus_ground.push_back(coord);
+    }
+  }
+  assert(outp_minus_ground.size() == 0);
+  std::vector<CoOrdinate> ground_minus_outp;
+  for (auto &coord : ground_truth) {
+    if (output_coordinates.find(coord) == output_coordinates.end()) {
+      ground_minus_outp.push_back(coord);
+    }
+  }
+  assert(ground_minus_outp.size() == 0);
+}
+
 int main() {
-  // dense_gemm_count();
-  //  sparse_gemm_count();
+  dense_gemm_shape();
+  sparse_gemm_shape();
+  fourd_tensor_contraction_shape();
+  dense_gemm_count();
+  sparse_gemm_count();
   fourd_tensor_contraction();
 }

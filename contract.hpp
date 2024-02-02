@@ -3,6 +3,7 @@
 #include <iostream>
 #include <random>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 template <typename T> static std::size_t hasharray(int size, T *arr) {
@@ -10,46 +11,72 @@ template <typename T> static std::size_t hasharray(int size, T *arr) {
 }
 
 class CoOrdinate {
-  int *coords;
-  int dimensionality;
+  // int *coords;
+  // int dimensionality;
+  std::vector<int> coords;
 
 public:
+  using iterator = typename std::vector<int>::iterator;
+  using const_iterator = typename std::vector<int>::const_iterator;
+  using value_type = typename std::vector<int>::value_type;
+  // iterator begin() { return coords.begin(); }
+  iterator begin() { return coords.begin(); }
+  const_iterator begin() const { return coords.begin(); }
+  iterator end() { return coords.end(); }
+  const_iterator end() const { return coords.end(); }
   CoOrdinate(int dimensionality, int *coords) {
-    int *mymem = new int[dimensionality];
-    memcpy(mymem, coords, dimensionality * sizeof(int));
-    this->dimensionality = dimensionality;
-    this->coords = mymem;
+    for (int i = 0; i < dimensionality; i++) {
+      this->coords.push_back(coords[i]);
+    }
   }
-  std::pair<int *, int> get_ref() const {
-    return std::make_pair(coords, dimensionality);
+  CoOrdinate(std::vector<int> data) { this->coords = data; }
+
+  // This is going to concatenate two coordinates
+  CoOrdinate(CoOrdinate left, CoOrdinate right) {
+    coords.insert(coords.end(), left.coords.begin(), left.coords.end());
+    coords.insert(coords.end(), right.coords.begin(), right.coords.end());
   }
-  int get_index(int dim) { return coords[dim]; }
+
+  CoOrdinate gather(CoOrdinate positions) {
+    assert(positions.get_dimensionality() <= this->get_dimensionality());
+    std::vector<int> gathered;
+    for (int i = 0; i < positions.get_dimensionality(); i++) {
+      gathered.push_back(coords[positions.get_index(i)]);
+    }
+    return gathered;
+  }
+
+  CoOrdinate remove(CoOrdinate positions) {
+    std::vector<int> removed;
+    for (int i = 0; i < this->get_dimensionality(); i++) {
+      if (std::find(positions.begin(), positions.end(), i) == positions.end()) {
+        removed.push_back(coords[i]);
+      }
+    }
+    return removed;
+  }
+
+  int get_index(int dim) const { return coords[dim]; }
+  int get_dimensionality() const { return coords.size(); }
   bool operator==(const CoOrdinate &other) const {
     // TODO we might have to make all permutations equal to one another.
-    if (dimensionality != other.dimensionality) {
+    if (this->get_dimensionality() != other.get_dimensionality()) {
       return false;
     }
-    for (int i = 0; i < dimensionality; i++) {
+    for (int i = 0; i < this->get_dimensionality(); i++) {
       if (coords[i] != other.coords[i]) {
         return false;
       }
     }
     return true;
   }
-  void free() {
-    if (coords != NULL) {
-      delete[] coords;
-      coords = NULL;
-    }
-  }
 };
 
 template <> struct std::hash<CoOrdinate> {
   std::size_t operator()(const CoOrdinate &c) const {
     std::string catted_cord = "";
-    auto [coords, dim] = c.get_ref();
-    for (int i = 0; i < dim; i++) {
-      catted_cord += std::to_string(coords[i]);
+    for (auto &&coord : c) {
+      catted_cord += std::to_string(coord);
       catted_cord += ",";
     }
     return std::hash<std::string>{}(catted_cord);
@@ -58,6 +85,7 @@ template <> struct std::hash<CoOrdinate> {
 
 class NNZ {
   float data;
+  // TODO fix this, make it a CoOrdinate
   std::vector<int> coords;
 
 public:
@@ -95,7 +123,10 @@ private:
   std::vector<NNZ> nonzeros;
   int *shape;
   int dimensionality;
-  using hashmap = std::unordered_map<CoOrdinate, int>;
+  using hashmap_counts = std::unordered_map<CoOrdinate, int>;
+  using hashmap_shape =
+      std::unordered_map<CoOrdinate,
+                         std::vector<std::pair<CoOrdinate, CoOrdinate>>>;
 
 public:
   using iterator = typename std::vector<NNZ>::iterator;
@@ -114,37 +145,28 @@ public:
   }
   Tensor(int size) { nonzeros.reserve(size); }
   std::vector<NNZ> &get_nonzeros() { return nonzeros; }
-  // void infer_shape() {
-  //   for (auto &nnz : this) {
-  //     for (int i = 0; i < D; i++) {
-  //       shape[i] = std::max(shape[i], nnz.coords[i]);
-  //     }
-  //   }
-  // }
+  void _infer_dimensionality() {
+    if (nonzeros.size() > 0) {
+      dimensionality = nonzeros[0].get_coords().get_dimensionality();
+    }
+  }
   float get_valat(CoOrdinate coords) {
     for (auto &nnz : nonzeros) {
       auto this_coords = nnz.get_coords();
       if (this_coords == coords) {
-        this_coords.free();
         return nnz.get_data();
       } else {
-        this_coords.free();
       }
     }
     return -1;
   }
-  void index_contraction(int *contraction, int num_contr,
-                         hashmap &indexed_tensor) {
+
+  void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
     for (auto &nnz : *this) {
-      int contr[num_contr];
-      for (int i = 0; i < num_contr; i++) {
-        contr[i] = nnz.get_index(contraction[i]);
-      }
-      auto filtered_coords = CoOrdinate(num_contr, contr);
+      auto filtered_coords = nnz.get_coords().gather(contraction);
       auto ref = indexed_tensor.find(filtered_coords);
       if (ref != indexed_tensor.end()) {
         ref->second += 1;
-        filtered_coords.free();
       } else {
         indexed_tensor[filtered_coords] = 1;
       }
@@ -152,12 +174,67 @@ public:
     return;
   }
 
-  int count_ops(Tensor &other, int num_contr, int *left_contr,
-                int *right_contr) {
-    hashmap first_index;
-    this->index_contraction(left_contr, num_contr, first_index);
-    hashmap second_index;
-    other.index_contraction(right_contr, num_contr, second_index);
+  // Change this to add only the batch indices to the hashmap set.
+  /// contraction is the positions of the dimensions in the tensor that we need
+  /// to contract out. same for batch.
+  void index_shape(CoOrdinate contraction, CoOrdinate batch,
+                   hashmap_shape &indexed_tensor) {
+    if (this->dimensionality == 0) {
+      this->_infer_dimensionality();
+    }
+    for (auto &nnz : *this) {
+      auto index_positions = CoOrdinate(batch, contraction);
+      auto index_coords = nnz.get_coords().gather(index_positions);
+      auto batch_coords = nnz.get_coords().gather(batch);
+      auto external_coords = nnz.get_coords().remove(index_positions);
+      auto ref = indexed_tensor.find(index_coords);
+      if (ref != indexed_tensor.end()) {
+        ref->second.push_back({batch_coords, external_coords});
+      } else {
+        indexed_tensor[index_coords] = {{batch_coords, external_coords}};
+      }
+    }
+    return;
+  }
+
+  // Returns a set of coordinates that are the result of the contraction of two
+  // tensors.
+  // order is: (batch indices, left external indices, right external indices).
+  std::unordered_set<CoOrdinate>
+  output_shape(Tensor &other, CoOrdinate left_contr, CoOrdinate left_batch,
+               CoOrdinate right_contr, CoOrdinate right_batch) {
+    hashmap_shape first_index;
+    this->index_shape(left_contr, left_batch, first_index);
+    hashmap_shape second_index;
+    other.index_shape(right_contr, right_batch, second_index);
+    std::unordered_set<CoOrdinate> output;
+    // Join on the keys of the map, cartesian product of the values.
+    for (auto &entry : first_index) {
+      auto ref = second_index.find(entry.first);
+      if (ref != second_index.end()) {
+        for (auto &leftcord : entry.second) {
+          for (auto &rightcord : ref->second) {
+            CoOrdinate batch_coords = leftcord.first;
+            CoOrdinate external_coords =
+                CoOrdinate(leftcord.second, rightcord.second);
+            CoOrdinate output_coords =
+                CoOrdinate(batch_coords, external_coords);
+            output.insert(output_coords);
+          }
+        }
+      }
+    }
+    return output;
+  }
+
+  int count_ops(Tensor &other, CoOrdinate left_contraction,
+                CoOrdinate right_contraction) {
+    assert(left_contraction.get_dimensionality() ==
+           right_contraction.get_dimensionality());
+    hashmap_counts first_index;
+    this->index_counts(left_contraction, first_index);
+    hashmap_counts second_index;
+    other.index_counts(right_contraction, second_index);
     int ops = 0;
     for (auto &entry : first_index) {
       auto ref = second_index.find(entry.first);
