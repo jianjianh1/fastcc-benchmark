@@ -1,3 +1,5 @@
+#ifndef CONTRACT_HPP
+#define CONTRACT_HPP
 #include <algorithm>
 #include <boost/functional/hash.hpp>
 #include <iostream>
@@ -86,7 +88,7 @@ template <> struct std::hash<CoOrdinate> {
 class NNZ {
   float data;
   // TODO fix this, make it a CoOrdinate
-  std::vector<int> coords;
+  CoOrdinate coords = CoOrdinate(0, nullptr);
 
 public:
   // Constructor for a random value and coordinates
@@ -98,24 +100,23 @@ public:
     for (int i = 0; i < dimensionality; i++) {
       dis_cords[i] = std::uniform_int_distribution<>(0, shape[i]);
     }
-    data = disf(gen);
+    std::vector<int> temp_coords;
+    this->data = disf(gen);
     for (int i = 0; i < dimensionality; i++) {
-      this->coords.push_back(dis_cords[i](gen));
+      temp_coords.push_back(dis_cords[i](gen));
     }
+    this->coords = CoOrdinate(temp_coords);
   }
-  int get_index(int dim) { return coords[dim]; }
+  int get_index(int dim) { return coords.get_index(dim); }
   float get_data() { return data; }
 
-  CoOrdinate get_coords() { return CoOrdinate(coords.size(), coords.data()); }
+  CoOrdinate get_coords() { return coords; }
   // careful, this will move out the co-ordinates.
 
   // Constructor for a given value and coordinates
-  NNZ(float data, int dimensionality, int *coords) {
-    this->data = data;
-    for (int i = 0; i < dimensionality; i++) {
-      this->coords.push_back(coords[i]);
-    }
-  }
+  NNZ(float data, int dimensionality, int *coords)
+      : data(data), coords(dimensionality, coords) {}
+  NNZ(float data, CoOrdinate coords) : data(data), coords(coords) {}
 };
 
 class Tensor {
@@ -133,6 +134,7 @@ public:
   using value_type = typename std::vector<NNZ>::value_type;
   iterator begin() { return nonzeros.begin(); }
   iterator end() { return nonzeros.end(); }
+  Tensor(std::string fname, bool);
   // Constructor for a tensor of given shape and number of non-zeros, fills with
   // random values and indices
   Tensor(int size, int dimensionality, int *shape) {
@@ -245,3 +247,4 @@ public:
     return ops;
   }
 };
+#endif

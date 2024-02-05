@@ -1,4 +1,5 @@
 #include "contract.hpp"
+#include "read.hpp"
 #include <chrono>
 #include <iostream>
 #include <iterator>
@@ -359,10 +360,11 @@ void fourd_tensor_contraction_shape() {
 }
 
 int main() {
-  dense_gemm_shape();
-  sparse_gemm_shape();
-  fourd_tensor_contraction_shape();
-  dense_gemm_count();
-  sparse_gemm_count();
-  fourd_tensor_contraction();
+    Tensor scircuit("scircuit.mtx", true);
+  //dense_gemm_shape();
+  //sparse_gemm_shape();
+  //fourd_tensor_contraction_shape();
+  //dense_gemm_count();
+  //sparse_gemm_count();
+  //fourd_tensor_contraction();
 }
