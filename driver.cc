@@ -359,12 +359,32 @@ void fourd_tensor_contraction_shape() {
   assert(ground_minus_outp.size() == 0);
 }
 
+void sparse_gemm(Tensor some) {
+  std::chrono::high_resolution_clock::time_point t1 =
+      std::chrono::high_resolution_clock::now();
+  auto output_coordinates = some.output_shape(
+      some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
+  std::chrono::high_resolution_clock::time_point t2 =
+      std::chrono::high_resolution_clock::now();
+  std::cout
+      << "Time taken for get_contraction_shape "
+      << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+      << std::endl;
+  std::cout<<" Gonna write "<< output_coordinates.size() << " coordinates to file"<<std::endl;
+  std::string filename = "output_coordinates.txt";
+  for (auto &coord : output_coordinates) {
+    coord.write(filename);
+  }
+}
+
 int main() {
-    Tensor scircuit("scircuit.mtx", true);
-  //dense_gemm_shape();
-  //sparse_gemm_shape();
-  //fourd_tensor_contraction_shape();
-  //dense_gemm_count();
-  //sparse_gemm_count();
-  //fourd_tensor_contraction();
+  Tensor scircuit("nopoly.mtx", true);
+  sparse_gemm(scircuit);
+
+  // dense_gemm_shape();
+  // sparse_gemm_shape();
+  // fourd_tensor_contraction_shape();
+  // dense_gemm_count();
+  // sparse_gemm_count();
+  // fourd_tensor_contraction();
 }
