@@ -32,6 +32,8 @@ public:
     }
   }
   CoOrdinate(std::vector<int> data) { this->coords = data; }
+  std::string to_string() const;
+  void write(std::string filename) const;
 
   // This is going to concatenate two coordinates
   CoOrdinate(CoOrdinate left, CoOrdinate right) {
@@ -135,6 +137,7 @@ public:
   iterator begin() { return nonzeros.begin(); }
   iterator end() { return nonzeros.end(); }
   Tensor(std::string fname, bool);
+  void write(std::string fname);
   // Constructor for a tensor of given shape and number of non-zeros, fills with
   // random values and indices
   Tensor(int size, int dimensionality, int *shape) {
