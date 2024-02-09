@@ -25,8 +25,9 @@ Tensor::Tensor(std::string filename, bool has_header = false) {
       line = line.substr(pos + 1);
       pos = line.find(" ");
     }
+    nnz_data.push_back(std::stoi(line.substr(0, pos)));
     if (dimensionality == 0) {
-      dimensionality = nnz_data.size();
+      dimensionality = nnz_data.size() - 1;
       std::fill_n(std::back_inserter(extents), dimensionality, INT_MIN);
     } else {
       for (int i = 0; i < dimensionality; i++) {
@@ -34,7 +35,7 @@ Tensor::Tensor(std::string filename, bool has_header = false) {
           extents[i] = nnz_data[i];
         }
       }
-      assert(dimensionality == nnz_data.size());
+      assert(dimensionality == nnz_data.size() - 1);
     }
     float nnz_val = nnz_data.back();
     nnz_data.pop_back();
@@ -53,5 +54,25 @@ Tensor::Tensor(std::string filename, bool has_header = false) {
   }
   std::cout << std::endl;
   std::cout << "Tensor nnz count: " << this->nonzeros.size() << std::endl;
+}
+void Tensor::write(std::string filename) {
+  std::ofstream file(filename);
+  for (auto &nnz : this->nonzeros) {
+    file << nnz.get_coords().to_string() << " " << nnz.get_data() << std::endl;
+  }
+  file.close();
+}
+std::string CoOrdinate::to_string() const {
+  std::string str = "";
+  for (int i = 0; i < this->coords.size(); i++) {
+    str += std::to_string(this->coords[i]) + " ";
+  }
+  return str;
+}
+void CoOrdinate::write(std::string filename) const {
+  std::ofstream file(filename, std::ios_base::app);
+  file << this->to_string() << std::endl;
+  file << std::endl;
+  file.close();
 }
 #endif
