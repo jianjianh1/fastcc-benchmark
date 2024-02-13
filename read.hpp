@@ -25,9 +25,8 @@ Tensor::Tensor(std::string filename, bool has_header = false) {
       line = line.substr(pos + 1);
       pos = line.find(" ");
     }
-    nnz_data.push_back(std::stoi(line.substr(0, pos)));
     if (dimensionality == 0) {
-      dimensionality = nnz_data.size() - 1;
+      dimensionality = nnz_data.size();
       std::fill_n(std::back_inserter(extents), dimensionality, INT_MIN);
     } else {
       for (int i = 0; i < dimensionality; i++) {
@@ -35,10 +34,9 @@ Tensor::Tensor(std::string filename, bool has_header = false) {
           extents[i] = nnz_data[i];
         }
       }
-      assert(dimensionality == nnz_data.size() - 1);
+      assert(dimensionality == nnz_data.size());
     }
-    float nnz_val = nnz_data.back();
-    nnz_data.pop_back();
+    float nnz_val = std::stod(line.substr(0, pos));
     CoOrdinate this_coords = CoOrdinate(nnz_data);
     NNZ this_nnz = NNZ(nnz_val, this_coords);
     this->nonzeros.push_back(this_nnz);
