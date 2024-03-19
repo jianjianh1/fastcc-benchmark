@@ -6,6 +6,7 @@
 #include <string>
 
 Tensor::Tensor(std::string filename, bool has_header = false) {
+    std::cout<<"Reading tensor from file: "<<filename<<std::endl;
   std::ifstream file(filename);
   std::string line;
   int dimensionality = 0;

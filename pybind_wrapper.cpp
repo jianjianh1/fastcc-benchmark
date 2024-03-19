@@ -9,7 +9,8 @@ PYBIND11_MODULE(sparse_opcnt, m) {
       .def(pybind11::init<std::string, bool>())
       .def("write", &Tensor::write)
       .def("count_ops", &Tensor::count_ops)
-      .def("output_shape", &Tensor::output_shape);
+      .def("output_shape", &Tensor::output_shape)
+      .def("contract", &Tensor::contract);
   pybind11::class_<CoOrdinate>(m, "CoOrdinate")
       .def(pybind11::init<std::vector<int>>());
 

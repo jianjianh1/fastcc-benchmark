@@ -42,6 +42,12 @@ public:
   }
 
   CoOrdinate gather(CoOrdinate positions) {
+      // TODO remove before flight
+      if(positions.get_dimensionality() > this->get_dimensionality()){
+          std::cout<<"Error, trying to gather more dimensions than there are in the tensor"<<std::endl;
+          std::cout<<"positions asked: "<<positions.to_string()<<std::endl;
+          std::cout<<"Gathered: "<<positions.get_dimensionality()<<" Tensor: "<<this->get_dimensionality()<<std::endl;
+      }
     assert(positions.get_dimensionality() <= this->get_dimensionality());
     std::vector<int> gathered;
     for (int i = 0; i < positions.get_dimensionality(); i++) {
@@ -148,11 +154,36 @@ public:
       nonzeros.emplace_back(dimensionality, shape);
     }
   }
+  // Make a tensor with just ones at given positions
+  template <class It>
+  Tensor(It begin,It end) {
+    for (auto it = begin; it != end; it++) {
+      nonzeros.emplace_back(1.0, *it);
+    }
+    this->_infer_dimensionality();
+    this->_infer_shape();
+  }
   Tensor(int size) { nonzeros.reserve(size); }
   std::vector<NNZ> &get_nonzeros() { return nonzeros; }
   void _infer_dimensionality() {
     if (nonzeros.size() > 0) {
       dimensionality = nonzeros[0].get_coords().get_dimensionality();
+    }
+  }
+  void _infer_shape() {
+    if (nonzeros.size() > 0) {
+      shape = new int[dimensionality];
+      for (int i = 0; i < dimensionality; i++) {
+        shape[i] = 0;
+      }
+      for (auto &nnz : nonzeros) {
+        auto coords = nnz.get_coords();
+        for (int i = 0; i < dimensionality; i++) {
+          if (coords.get_index(i) > shape[i]) {
+            shape[i] = coords.get_index(i);
+          }
+        }
+      }
     }
   }
   float get_valat(CoOrdinate coords) {
@@ -230,6 +261,14 @@ public:
       }
     }
     return output;
+  }
+
+  Tensor contract(Tensor &other, CoOrdinate left_contraction,
+                  CoOrdinate left_batch, CoOrdinate right_contraction,
+                  CoOrdinate right_batch) {
+    std::unordered_set<CoOrdinate> output_coords = this->output_shape(
+        other, left_contraction, left_batch, right_contraction, right_batch);
+    return Tensor(output_coords.begin(), output_coords.end());
   }
 
   int count_ops(Tensor &other, CoOrdinate left_contraction,
