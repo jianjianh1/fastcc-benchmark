@@ -264,6 +264,45 @@ void fourd_tensor_contraction() {
   std::cout << "Count using HT " << num_mults << std::endl;
 }
 
+void dlpno_4cint(Tensor teov, Tensor tevv) {
+  auto left_c = CoOrdinate({2});
+  auto right_c = CoOrdinate({2});
+  const int PAO = 60;
+  const int MO = 50;
+  const int AUX = 60;
+  std::chrono::high_resolution_clock::time_point t1 =
+      std::chrono::high_resolution_clock::now();
+  int num_mults = teov.count_ops(tevv, left_c, right_c);
+  std::chrono::high_resolution_clock::time_point t2 =
+      std::chrono::high_resolution_clock::now();
+  std::cout
+      << "Time taken for count_ops "
+      << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+      << std::endl;
+  std::cout << "Count using HT " << num_mults << std::endl;
+  FlopCounter<float> counter;
+  for (int b = 0; b < PAO; b++) {
+    for (int f = 0; f < PAO; f++) {
+      for (int m = 0; m < MO; m++) {
+        for (int e = 0; e < PAO; e++) {
+          int accum = 0;
+          for (int k = 0; k < AUX; k++) {
+            int left[3] = {b, f, k};
+            int right[3] = {m, e, k};
+            auto leftcord = CoOrdinate(3, left);
+            auto rightcord = CoOrdinate(3, right);
+            float left_val = tevv.get_valat(leftcord);
+            float right_val = teov.get_valat(rightcord);
+            if (left_val != -1 && right_val != -1)
+              accum += counter.mul(left_val, right_val);
+          }
+        }
+      }
+    }
+  }
+  std::cout << "Count using FlopCounter " << counter.get_mults() << std::endl;
+}
+
 void fourd_tensor_contraction_shape() {
   const int NNZ_COUNT = 5000;
   // I(7, 11, 9, 11) = T0(7, 11, 10, 12, 9) * T1(7, 11, 10, 12, 11);
@@ -364,22 +403,26 @@ void sparse_gemm(Tensor some) {
       std::chrono::high_resolution_clock::now();
   auto output_coordinates = some.output_shape(
       some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
+  auto num_ops = some.count_ops(some, CoOrdinate({1}), CoOrdinate({0}));
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
   std::cout
       << "Time taken for get_contraction_shape "
       << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
-      << std::endl;
-  std::cout<<" Gonna write "<< output_coordinates.size() << " coordinates to file"<<std::endl;
+      << " microseconds" << std::endl;
+  std::cout << " Gonna write " << output_coordinates.size()
+            << " coordinates to file" << std::endl;
   std::string filename = "output_coordinates.txt";
   for (auto &coord : output_coordinates) {
     coord.write(filename);
   }
+  std::cout << "Num ops " << num_ops << std::endl;
 }
 
 int main() {
-  Tensor scircuit("nopoly.mtx", true);
-  sparse_gemm(scircuit);
+  Tensor teov("TEov_00.tns", true);
+  Tensor tevv("TEvv.tns", true);
+  dlpno_4cint(teov, tevv);
 
   // dense_gemm_shape();
   // sparse_gemm_shape();
