@@ -236,6 +236,7 @@ public:
   // Returns a set of coordinates that are the result of the contraction of two
   // tensors.
   // order is: (batch indices, left external indices, right external indices).
+  // order within batch indices is dependent on the left operand
   std::unordered_set<CoOrdinate>
   output_shape(Tensor &other, CoOrdinate left_contr, CoOrdinate left_batch,
                CoOrdinate right_contr, CoOrdinate right_batch) {

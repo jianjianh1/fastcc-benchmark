@@ -56,6 +56,10 @@ Tensor::Tensor(std::string filename, bool has_header = false) {
 }
 void Tensor::write(std::string filename) {
   std::ofstream file(filename);
+  for (int i = 0; i < this->dimensionality; i++) {
+    file << this->shape[i] << " ";
+  }
+  file << std::endl;
   for (auto &nnz : this->nonzeros) {
     file << nnz.get_coords().to_string() << " " << nnz.get_data() << std::endl;
   }

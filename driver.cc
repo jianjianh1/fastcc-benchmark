@@ -420,7 +420,7 @@ void sparse_gemm(Tensor some) {
 }
 
 int main() {
-  Tensor teov("TEov_00.tns", true);
+  Tensor teov("TEov.tns", true);
   Tensor tevv("TEvv.tns", true);
   dlpno_4cint(teov, tevv);
 
