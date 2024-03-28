@@ -1,9 +1,11 @@
 #ifndef CONTRACT_HPP
 #define CONTRACT_HPP
+#include "types.hpp"
 #include <algorithm>
 #include <boost/functional/hash.hpp>
 #include <iostream>
 #include <random>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -42,12 +44,15 @@ public:
   }
 
   CoOrdinate gather(CoOrdinate positions) {
-      // TODO remove before flight
-      if(positions.get_dimensionality() > this->get_dimensionality()){
-          std::cout<<"Error, trying to gather more dimensions than there are in the tensor"<<std::endl;
-          std::cout<<"positions asked: "<<positions.to_string()<<std::endl;
-          std::cout<<"Gathered: "<<positions.get_dimensionality()<<" Tensor: "<<this->get_dimensionality()<<std::endl;
-      }
+    // TODO remove before flight
+    if (positions.get_dimensionality() > this->get_dimensionality()) {
+      std::cout << "Error, trying to gather more dimensions than there are in "
+                   "the tensor"
+                << std::endl;
+      std::cout << "positions asked: " << positions.to_string() << std::endl;
+      std::cout << "Gathered: " << positions.get_dimensionality()
+                << " Tensor: " << this->get_dimensionality() << std::endl;
+    }
     assert(positions.get_dimensionality() <= this->get_dimensionality());
     std::vector<int> gathered;
     for (int i = 0; i < positions.get_dimensionality(); i++) {
@@ -93,9 +98,8 @@ template <> struct std::hash<CoOrdinate> {
   }
 };
 
-class NNZ {
-  float data;
-  // TODO fix this, make it a CoOrdinate
+template <class DT> class NNZ {
+  DT data;
   CoOrdinate coords = CoOrdinate(0, nullptr);
 
 public:
@@ -115,21 +119,29 @@ public:
     }
     this->coords = CoOrdinate(temp_coords);
   }
+  std::string to_string() const {
+    std::string str = "";
+    for (int i = 0; i < this->coords.get_dimensionality(); i++) {
+      str += std::to_string(this->coords.get_index(i)) + " ";
+    }
+    str += std::to_string(data);
+    return str;
+  }
   int get_index(int dim) { return coords.get_index(dim); }
-  float get_data() { return data; }
+  DT get_data() { return data; }
 
   CoOrdinate get_coords() { return coords; }
   // careful, this will move out the co-ordinates.
 
   // Constructor for a given value and coordinates
-  NNZ(float data, int dimensionality, int *coords)
+  NNZ(DT data, int dimensionality, int *coords)
       : data(data), coords(dimensionality, coords) {}
-  NNZ(float data, CoOrdinate coords) : data(data), coords(coords) {}
+  NNZ(DT data, CoOrdinate coords) : data(data), coords(coords) {}
 };
 
-class Tensor {
+template <class DT> class Tensor {
 private:
-  std::vector<NNZ> nonzeros;
+  std::vector<NNZ<DT>> nonzeros;
   int *shape;
   int dimensionality;
   using hashmap_counts = std::unordered_map<CoOrdinate, int>;
@@ -138,8 +150,8 @@ private:
                          std::vector<std::pair<CoOrdinate, CoOrdinate>>>;
 
 public:
-  using iterator = typename std::vector<NNZ>::iterator;
-  using value_type = typename std::vector<NNZ>::value_type;
+  using iterator = typename std::vector<NNZ<DT>>::iterator;
+  using value_type = typename std::vector<NNZ<DT>>::value_type;
   iterator begin() { return nonzeros.begin(); }
   iterator end() { return nonzeros.end(); }
   Tensor(std::string fname, bool);
@@ -155,8 +167,7 @@ public:
     }
   }
   // Make a tensor with just ones at given positions
-  template <class It>
-  Tensor(It begin,It end) {
+  template <class It> Tensor(It begin, It end) {
     for (auto it = begin; it != end; it++) {
       nonzeros.emplace_back(1.0, *it);
     }
@@ -164,7 +175,8 @@ public:
     this->_infer_shape();
   }
   Tensor(int size) { nonzeros.reserve(size); }
-  std::vector<NNZ> &get_nonzeros() { return nonzeros; }
+  std::vector<NNZ<DT>> &get_nonzeros() { return nonzeros; }
+  int get_size() { return nonzeros.size(); }
   void _infer_dimensionality() {
     if (nonzeros.size() > 0) {
       dimensionality = nonzeros[0].get_coords().get_dimensionality();
@@ -186,7 +198,7 @@ public:
       }
     }
   }
-  float get_valat(CoOrdinate coords) {
+  DT get_valat(CoOrdinate coords) {
     for (auto &nnz : nonzeros) {
       auto this_coords = nnz.get_coords();
       if (this_coords == coords) {
@@ -194,7 +206,7 @@ public:
       } else {
       }
     }
-    return -1;
+    return DT();
   }
 
   void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
@@ -270,6 +282,70 @@ public:
     std::unordered_set<CoOrdinate> output_coords = this->output_shape(
         other, left_contraction, left_batch, right_contraction, right_batch);
     return Tensor(output_coords.begin(), output_coords.end());
+  }
+
+  template <class RES, class RIGHT>
+  Tensor<RES> multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                       CoOrdinate left_batch, CoOrdinate right_contr,
+                       CoOrdinate right_batch) {
+    // Store the output as a hashmap of coordinates to values
+    // Co-iterate over the left and right op just like we did for op-counting,
+    // just add and update the value if it exists. We need a way to get a
+    // default value from the abstract datatype. We also need to write functions
+    // to accumulate (+=) in-place with another object of the same abstract
+    // type.
+    hashmap_shape first_index;
+    this->index_shape(left_contr, left_batch, first_index);
+    hashmap_shape second_index;
+    other.index_shape(right_contr, right_batch, second_index);
+    std::unordered_map<CoOrdinate, RES> output;
+    // Join on the keys of the map, cartesian product of the values.
+    for (auto &entry : first_index) {
+      auto ref = second_index.find(entry.first);
+      if (ref != second_index.end()) {
+        for (auto &leftcord : entry.second) {
+          for (auto &rightcord : ref->second) {
+            CoOrdinate batch_coords = leftcord.first;
+            CoOrdinate external_coords =
+                CoOrdinate(leftcord.second, rightcord.second);
+            CoOrdinate output_coords =
+                CoOrdinate(batch_coords, external_coords);
+            auto ref = output.find(output_coords);
+            if (ref != output.end()) {
+              ref->second += this->get_valat(leftcord.first) *
+                             other.get_valat(rightcord.first);
+            } else {
+
+              // if constexpr (std::is_class<DT>::value) {
+              //   std::cout << "Left vector "
+              //             << this->get_valat(leftcord.first).to_string()
+              //             << std::endl;
+              // } else {
+              //   std::cout << "Left vector " <<
+              //   this->get_valat(rightcord.first)
+              //             << std::endl;
+              // }
+              // if constexpr (std::is_class<RIGHT>::value) {
+              //   std::cout << "Right vector "
+              //             << other.get_valat(leftcord.first).to_string()
+              //             << std::endl;
+              // } else {
+              //   std::cout << "Right vector " <<
+              //   other.get_valat(rightcord.first)
+              //             << std::endl;
+              // }
+              output[output_coords] = this->get_valat(leftcord.first) *
+                                      other.get_valat(rightcord.first);
+            }
+          }
+        }
+      }
+    }
+    Tensor<RES> output_tensor(output.size());
+    for (auto &entry : output) {
+      output_tensor.get_nonzeros().emplace_back(entry.second, entry.first);
+    }
+    return output_tensor;
   }
 
   int count_ops(Tensor &other, CoOrdinate left_contraction,

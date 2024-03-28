@@ -25,18 +25,18 @@ void dense_gemm_count() {
   // C(2, 2) = A(2, 5) * B(5, 2);
   int a_shape[2] = {2, 5};
   int b_shape[2] = {5, 2};
-  Tensor A(10);
+  Tensor<float> A(10);
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 5; j++) {
       int coords[2] = {i, j};
-      A.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+      A.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
-  Tensor B(10);
+  Tensor<float> B(10);
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j < 2; j++) {
       int coords[2] = {i, j};
-      B.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+      B.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
 
@@ -64,18 +64,18 @@ void dense_gemm_shape() {
   // C(2, 2) = A(2, 5) * B(5, 2);
   int a_shape[2] = {2, 5};
   int b_shape[2] = {5, 2};
-  Tensor A(10);
+  Tensor<float> A(10);
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 5; j++) {
       int coords[2] = {i, j};
-      A.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+      A.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
-  Tensor B(10);
+  Tensor<float> B(10);
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j < 2; j++) {
       int coords[2] = {i, j};
-      B.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+      B.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
 
@@ -103,22 +103,22 @@ void sparse_gemm_count() {
   // C(2, 2) = A(2, 5) * B(5, 2);
   int a_shape[2] = {2, 5};
   int b_shape[2] = {5, 2};
-  Tensor A(10);
+  Tensor<float> A(10);
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 5; j++) {
       if (j % 2 != i)
         continue;
       int coords[2] = {i, j};
-      A.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+      A.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
-  Tensor B(10);
+  Tensor<float> B(10);
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j < 2; j++) {
       if (j % 2 == i)
         continue;
       int coords[2] = {i, j};
-      B.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+      B.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
   int num_mults = A.count_ops(B, CoOrdinate({1}), CoOrdinate({0}));
@@ -147,22 +147,22 @@ void sparse_gemm_shape() {
   // C(2, 2) = A(2, 5) * B(5, 2);
   int a_shape[2] = {2, 5};
   int b_shape[2] = {5, 2};
-  Tensor A(10);
+  Tensor<float> A(10);
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 5; j++) {
       if (j % 2 != i)
         continue;
       int coords[2] = {i, j};
-      A.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+      A.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
-  Tensor B(10);
+  Tensor<float> B(10);
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j < 2; j++) {
       if (j % 2 == i)
         continue;
       int coords[2] = {i, j};
-      B.get_nonzeros().push_back(NNZ(1.0, 2, coords));
+      B.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
   auto output_coordinates = A.output_shape(B, CoOrdinate({1}), CoOrdinate({}),
@@ -191,7 +191,7 @@ void fourd_tensor_contraction() {
   // I(7, 11, 9, 11) = T0(7, 11, 10, 12, 9) * T1(7, 11, 10, 12, 11);
   int a_shape[5] = {7, 11, 10, 12, 9};
   int b_shape[5] = {7, 11, 10, 12, 11};
-  Tensor A(NNZ_COUNT);
+  Tensor<float> A(NNZ_COUNT);
   int a_ctr = 0;
   for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 11; j++) {
@@ -202,14 +202,14 @@ void fourd_tensor_contraction() {
               break;
 
             int coords[5] = {i, j, k, l, m};
-            A.get_nonzeros().push_back(NNZ(1.0, 5, coords));
+            A.get_nonzeros().push_back(NNZ<float>(1.0, 5, coords));
             a_ctr++;
           }
         }
       }
     }
   }
-  Tensor B(NNZ_COUNT);
+  Tensor<float> B(NNZ_COUNT);
   int b_ctr = 0;
   for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 11; j++) {
@@ -220,7 +220,7 @@ void fourd_tensor_contraction() {
               break;
 
             int coords[5] = {i, j, k, l, m};
-            B.get_nonzeros().push_back(NNZ(1.0, 5, coords));
+            B.get_nonzeros().push_back(NNZ<float>(1.0, 5, coords));
             b_ctr++;
           }
         }
@@ -264,7 +264,7 @@ void fourd_tensor_contraction() {
   std::cout << "Count using HT " << num_mults << std::endl;
 }
 
-void dlpno_4cint(Tensor teov, Tensor tevv) {
+void dlpno_4cint(Tensor<float> teov, Tensor<float> tevv) {
   auto left_c = CoOrdinate({2});
   auto right_c = CoOrdinate({2});
   const int PAO = 60;
@@ -308,7 +308,7 @@ void fourd_tensor_contraction_shape() {
   // I(7, 11, 9, 11) = T0(7, 11, 10, 12, 9) * T1(7, 11, 10, 12, 11);
   int a_shape[5] = {7, 11, 10, 12, 9};
   int b_shape[5] = {7, 11, 10, 12, 11};
-  Tensor A(NNZ_COUNT);
+  Tensor<float> A(NNZ_COUNT);
   int a_ctr = 0;
   for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 11; j++) {
@@ -319,14 +319,14 @@ void fourd_tensor_contraction_shape() {
               break;
 
             int coords[5] = {i, j, k, l, m};
-            A.get_nonzeros().push_back(NNZ(1.0, 5, coords));
+            A.get_nonzeros().push_back(NNZ<float>(1.0, 5, coords));
             a_ctr++;
           }
         }
       }
     }
   }
-  Tensor B(NNZ_COUNT);
+  Tensor<float> B(NNZ_COUNT);
   int b_ctr = 0;
   for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 11; j++) {
@@ -337,7 +337,7 @@ void fourd_tensor_contraction_shape() {
               break;
 
             int coords[5] = {i, j, k, l, m};
-            B.get_nonzeros().push_back(NNZ(1.0, 5, coords));
+            B.get_nonzeros().push_back(NNZ<float>(1.0, 5, coords));
             b_ctr++;
           }
         }
@@ -398,36 +398,31 @@ void fourd_tensor_contraction_shape() {
   assert(ground_minus_outp.size() == 0);
 }
 
-void sparse_gemm(Tensor some) {
+void sparse_gemm(Tensor<float> some) {
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
-  auto output_coordinates = some.output_shape(
-      some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
-  auto num_ops = some.count_ops(some, CoOrdinate({1}), CoOrdinate({0}));
+  //auto output_coordinates = some.output_shape(
+  //    some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
+  //auto num_ops = some.count_ops(some, CoOrdinate({1}), CoOrdinate({0}));
+  Tensor<float> output_matrix = some.multiply<float>(some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
   std::cout
       << "Time taken for get_contraction_shape "
       << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
       << " microseconds" << std::endl;
-  std::cout << " Gonna write " << output_coordinates.size()
-            << " coordinates to file" << std::endl;
+  //std::cout << " Gonna write " << output_matrix.size()
+  //          << " coordinates to file" << std::endl;
   std::string filename = "output_coordinates.txt";
-  for (auto &coord : output_coordinates) {
-    coord.write(filename);
+  std::ofstream file(filename);
+  for (auto &nnz : output_matrix.get_nonzeros()) {
+    file << nnz.to_string() << std::endl;
   }
-  std::cout << "Num ops " << num_ops << std::endl;
 }
 
-int main() {
-  Tensor teov("TEov.tns", true);
-  Tensor tevv("TEvv.tns", true);
-  dlpno_4cint(teov, tevv);
 
-  // dense_gemm_shape();
-  // sparse_gemm_shape();
-  // fourd_tensor_contraction_shape();
-  // dense_gemm_count();
-  // sparse_gemm_count();
-  // fourd_tensor_contraction();
+int main() {
+  Tensor<densevec> t1("T2.tns", true);
+  Tensor<double> res_lmo_lmo = t1.multiply<double, densevec>(t1, CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}), CoOrdinate({0}));
+  res_lmo_lmo.write("T2_out.tns");
 }

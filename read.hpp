@@ -5,8 +5,8 @@
 #include <iostream>
 #include <string>
 
-Tensor::Tensor(std::string filename, bool has_header = false) {
-    std::cout<<"Reading tensor from file: "<<filename<<std::endl;
+template <> Tensor<float>::Tensor(std::string filename, bool has_header) {
+  std::cout << "Reading tensor from file: " << filename << std::endl;
   std::ifstream file(filename);
   std::string line;
   int dimensionality = 0;
@@ -39,7 +39,7 @@ Tensor::Tensor(std::string filename, bool has_header = false) {
     }
     float nnz_val = std::stod(line.substr(0, pos));
     CoOrdinate this_coords = CoOrdinate(nnz_data);
-    NNZ this_nnz = NNZ(nnz_val, this_coords);
+    NNZ<float> this_nnz = NNZ<float>(nnz_val, this_coords);
     this->nonzeros.push_back(this_nnz);
   }
   this->dimensionality = dimensionality;
@@ -54,14 +54,61 @@ Tensor::Tensor(std::string filename, bool has_header = false) {
   std::cout << std::endl;
   std::cout << "Tensor nnz count: " << this->nonzeros.size() << std::endl;
 }
-void Tensor::write(std::string filename) {
-  std::ofstream file(filename);
+
+template <> Tensor<densevec>::Tensor(std::string filename, bool has_header) {
+  std::ifstream file(filename);
+  Tensor<float> eltwise = Tensor<float>(filename, has_header);
+  // Tensor<densevec> result = Tensor<densevec>(eltwise.get_size());
+  auto current_coords = eltwise.get_nonzeros()[0].get_coords();
+  assert(current_coords.get_dimensionality() > 1);
+  // Extract outer co-ordinates.
+  current_coords = current_coords.remove(
+      CoOrdinate({current_coords.get_dimensionality() - 1}));
+  for (int base = 0; base < eltwise.get_nonzeros().size(); base++) {
+    auto base_coords = eltwise.get_nonzeros()[base].get_coords();
+    auto base_data = eltwise.get_nonzeros()[base].get_data();
+    auto base_coords_outer =
+        base_coords.remove(CoOrdinate({base_coords.get_dimensionality() - 1}));
+    std::vector<double> vec_data;
+    int bound = base;
+    while (bound < eltwise.get_nonzeros().size() &&
+           base_coords_outer ==
+               eltwise.get_nonzeros()[bound].get_coords().remove(
+                   CoOrdinate({eltwise.get_nonzeros()[bound]
+                                   .get_coords()
+                                   .get_dimensionality() -
+                               1}))) {
+      vec_data.push_back(eltwise.get_nonzeros()[bound].get_data());
+      bound++;
+    }
+    densevec vec = densevec(vec_data);
+    nonzeros.emplace_back(vec, base_coords_outer);
+    base = bound - 1;
+  }
+  this->_infer_dimensionality();
+  this->_infer_shape();
+}
+
+template<> void Tensor<double>::write(std::string filename) {
+  std::ofstream file(filename, std::ios_base::app);
   for (int i = 0; i < this->dimensionality; i++) {
     file << this->shape[i] << " ";
   }
   file << std::endl;
   for (auto &nnz : this->nonzeros) {
     file << nnz.get_coords().to_string() << " " << nnz.get_data() << std::endl;
+  }
+  file.close();
+}
+template <class DT> void Tensor<DT>::write(std::string filename) {
+  std::ofstream file(filename, std::ios_base::app);
+  for (int i = 0; i < this->dimensionality; i++) {
+    file << this->shape[i] << " ";
+  }
+  file << std::endl;
+  for (auto &nnz : this->nonzeros) {
+    file << nnz.get_coords().to_string() << " " << nnz.get_data().to_string()
+         << std::endl;
   }
   file.close();
 }
@@ -72,6 +119,7 @@ std::string CoOrdinate::to_string() const {
   }
   return str;
 }
+
 void CoOrdinate::write(std::string filename) const {
   std::ofstream file(filename, std::ios_base::app);
   file << this->to_string() << std::endl;
