@@ -58,26 +58,18 @@ template <> Tensor<float>::Tensor(std::string filename, bool has_header) {
 template <> Tensor<densevec>::Tensor(std::string filename, bool has_header) {
   std::ifstream file(filename);
   Tensor<float> eltwise = Tensor<float>(filename, has_header);
-  // Tensor<densevec> result = Tensor<densevec>(eltwise.get_size());
-  auto current_coords = eltwise.get_nonzeros()[0].get_coords();
-  assert(current_coords.get_dimensionality() > 1);
-  // Extract outer co-ordinates.
-  current_coords = current_coords.remove(
-      CoOrdinate({current_coords.get_dimensionality() - 1}));
   for (int base = 0; base < eltwise.get_nonzeros().size(); base++) {
     auto base_coords = eltwise.get_nonzeros()[base].get_coords();
     auto base_data = eltwise.get_nonzeros()[base].get_data();
-    auto base_coords_outer =
-        base_coords.remove(CoOrdinate({base_coords.get_dimensionality() - 1}));
+    auto positions_to_remove =
+        CoOrdinate({base_coords.get_dimensionality() - 1});
+    auto base_coords_outer = base_coords.remove(positions_to_remove);
     std::vector<double> vec_data;
     int bound = base;
     while (bound < eltwise.get_nonzeros().size() &&
            base_coords_outer ==
                eltwise.get_nonzeros()[bound].get_coords().remove(
-                   CoOrdinate({eltwise.get_nonzeros()[bound]
-                                   .get_coords()
-                                   .get_dimensionality() -
-                               1}))) {
+                   positions_to_remove)) {
       vec_data.push_back(eltwise.get_nonzeros()[bound].get_data());
       bound++;
     }
@@ -89,7 +81,35 @@ template <> Tensor<densevec>::Tensor(std::string filename, bool has_header) {
   this->_infer_shape();
 }
 
-template<> void Tensor<double>::write(std::string filename) {
+template <> Tensor<densemat>::Tensor(std::string filename, bool has_header) {
+  std::ifstream file(filename);
+  Tensor<float> eltwise = Tensor<float>(filename, has_header);
+  // Tensor<densevec> result = Tensor<densevec>(eltwise.get_size());
+  for (int base = 0; base < eltwise.get_nonzeros().size(); base++) {
+    auto base_coords = eltwise.get_nonzeros()[base].get_coords();
+    auto base_data = eltwise.get_nonzeros()[base].get_data();
+    auto positions_to_remove =
+        CoOrdinate({base_coords.get_dimensionality() - 1,
+                    base_coords.get_dimensionality() - 2});
+    auto base_coords_outer = base_coords.remove(positions_to_remove);
+    std::vector<double> vec_data;
+    int bound = base;
+    while (bound < eltwise.get_nonzeros().size() &&
+           base_coords_outer ==
+               eltwise.get_nonzeros()[bound].get_coords().remove(
+                   positions_to_remove)) {
+      vec_data.push_back(eltwise.get_nonzeros()[bound].get_data());
+      bound++;
+    }
+    densemat mat = densemat(vec_data);
+    nonzeros.emplace_back(mat, base_coords_outer);
+    base = bound - 1;
+  }
+  this->_infer_dimensionality();
+  this->_infer_shape();
+}
+
+template <> void Tensor<double>::write(std::string filename) {
   std::ofstream file(filename, std::ios_base::app);
   for (int i = 0; i < this->dimensionality; i++) {
     file << this->shape[i] << " ";

@@ -1,13 +1,14 @@
 #ifndef TYPES_H
 #define TYPES_H
+#include <cassert>
 #include <cstring>
 #include <iostream>
+#include <math.h>
 #include <stdlib.h>
 #include <vector>
 
-//TODO implement identity value, and += operator (in-place)
 class densevec {
-  int size;
+  int size = 0;
   double *values;
 
 public:
@@ -20,6 +21,10 @@ public:
       values[i] = some_data[i];
     }
   }
+  double operator()(int i) {
+    assert(i < size);
+    return values[i];
+  }
   double *operator&() { return &values[0]; }
   int getsize() { return size; }
   // Now we need to implement the following
@@ -27,10 +32,11 @@ public:
   // scalar * vec
   // vec * vec -> inner dot, we don't ever need  element-wise
   densevec operator*(double scalar) {
-    densevec result = densevec();
+    std::vector<double> res_data;
     for (int i = 0; i < size; i++) {
-      *(&result + i) = values[i] * scalar;
+      res_data.push_back(values[i] * scalar);
     }
+    densevec result = densevec(res_data);
     return result;
   }
   std::string to_string() {
@@ -48,7 +54,7 @@ public:
     }
     double result = 0.0;
     for (int i = 0; i < size; i++) {
-      result += values[i] * *(&other + i);
+      result += values[i] * other(i);
     }
     return result;
   }
@@ -57,7 +63,7 @@ public:
 densevec operator*(double k, densevec other) { return other * k; }
 
 class densemat {
-  int size;
+  int size = 0;
   double *values;
 
 public:
@@ -66,6 +72,40 @@ public:
   double *operator&() { return &values[0]; }
   void free() { delete[] values; }
   int getsize() { return size; }
+  double operator()(int i, int j) {
+    assert(i < size && j < size);
+    return values[i * size + j];
+  }
+  densemat(std::vector<double> some_data) {
+    int root = int(sqrt(some_data.size()));
+    if (root * root != some_data.size()) {
+      std::cerr << "Matrix data is not square" << std::endl;
+      exit(1);
+    }
+    size = root;
+    values = new double[size*size];
+    for (int i = 0; i < size*size; i++) {
+      values[i] = some_data[i];
+    }
+  }
+  std::string to_string() {
+    std::string result = "";
+    for (int i = 0; i < size*size; i++) {
+      result += std::to_string(values[i]) + " ";
+    }
+    return result;
+  }
+  densemat operator+=(densemat other) {
+    if (size != other.size) {
+      std::cerr << "Matrix sizes do not match for an addition. Left is " << size
+                << ", while right is " << other.getsize() << std::endl;
+      return densemat();
+    }
+    for (int i = 0; i < size * size; i++) {
+      values[i] += other(i / size, i % size);
+    }
+    return *this;
+  }
   // Following operators for matrices
   // mat * scalar -> scalar. eltwise
   // scalar * mat -> scalar. eltwise
@@ -74,10 +114,11 @@ public:
   // vec * mat -> vec. gemv
   //
   densemat operator*(double scalar) {
-    densemat result = densemat();
+    std::vector<double> res_data;
     for (int i = 0; i < size * size; i++) {
-      *(&result + i) = scalar * values[i];
+      res_data.push_back(scalar * values[i]);
     }
+    densemat result = densemat(res_data);
     return result;
   }
   densemat operator*(densemat other) {
@@ -86,16 +127,17 @@ public:
                 << std::endl;
       return densemat();
     }
-    densemat result = densemat();
+    std::vector<double> res_data;
     for (int i = 0; i < size; i++) {
       for (int j = 0; j < size; j++) {
         double sum = 0.0;
         for (int k = 0; k < size; k++) {
-          sum += values[i * size + k] * *(&other + k * size + j);
+          sum += values[i * size + k] * other(k, j);
         }
-        *(&result + i * size + j) = sum;
+        res_data.push_back(sum);
       }
     }
+    densemat result = densemat(res_data);
     return result;
   }
   // Row of matrix shows up in result, column is contracted with another vector
@@ -106,14 +148,15 @@ public:
           << std::endl;
       return densevec();
     }
-    densevec result = densevec();
+    std::vector<double> res_data;
     for (int i = 0; i < size; i++) {
       double sum = 0.0;
       for (int j = 0; j < size; j++) {
-        sum += values[i * size + j] * *(&other + j);
+        sum += values[i * size + j] * other(j);
       }
-      *(&result + i) = sum;
+      res_data.push_back(sum);
     }
+    densevec result = densevec(res_data);
     return result;
   }
 };

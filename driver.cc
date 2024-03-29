@@ -401,18 +401,20 @@ void fourd_tensor_contraction_shape() {
 void sparse_gemm(Tensor<float> some) {
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
-  //auto output_coordinates = some.output_shape(
-  //    some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
-  //auto num_ops = some.count_ops(some, CoOrdinate({1}), CoOrdinate({0}));
-  Tensor<float> output_matrix = some.multiply<float>(some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
+  // auto output_coordinates = some.output_shape(
+  //     some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}),
+  //     CoOrdinate({}));
+  // auto num_ops = some.count_ops(some, CoOrdinate({1}), CoOrdinate({0}));
+  Tensor<float> output_matrix = some.multiply<float>(
+      some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
   std::cout
       << "Time taken for get_contraction_shape "
       << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
       << " microseconds" << std::endl;
-  //std::cout << " Gonna write " << output_matrix.size()
-  //          << " coordinates to file" << std::endl;
+  // std::cout << " Gonna write " << output_matrix.size()
+  //           << " coordinates to file" << std::endl;
   std::string filename = "output_coordinates.txt";
   std::ofstream file(filename);
   for (auto &nnz : output_matrix.get_nonzeros()) {
@@ -420,9 +422,23 @@ void sparse_gemm(Tensor<float> some) {
   }
 }
 
+void t2_pno_dgemm() {
+  Tensor<densemat> t2("T2.tns", true);
+  Tensor<densemat> res_lmo_lmo =
+      t2.multiply<densemat, densemat>(t2, CoOrdinate({}), CoOrdinate({0, 1}),
+                                      CoOrdinate({}), CoOrdinate({0, 1}));
+  res_lmo_lmo.write("T2_out.tns");
+}
+
+void t1_pno_vecinner(){
+    Tensor<densevec> t1("T1.tns", true);
+    Tensor<double> res_lmo_lmo =
+        t1.multiply<double, densevec>(t1, CoOrdinate({}), CoOrdinate({0}),
+                                        CoOrdinate({}), CoOrdinate({0}));
+    res_lmo_lmo.write("T1_out.tns");
+
+}
 
 int main() {
-  Tensor<densevec> t1("T2.tns", true);
-  Tensor<double> res_lmo_lmo = t1.multiply<double, densevec>(t1, CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}), CoOrdinate({0}));
-  res_lmo_lmo.write("T2_out.tns");
+  t1_pno_vecinner();
 }
