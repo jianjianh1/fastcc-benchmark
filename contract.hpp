@@ -169,7 +169,11 @@ public:
   // Make a tensor with just ones at given positions
   template <class It> Tensor(It begin, It end) {
     for (auto it = begin; it != end; it++) {
-      nonzeros.emplace_back(1.0, *it);
+      if constexpr (std::is_class<DT>::value) {
+        nonzeros.emplace_back(DT(), *it);
+      } else {
+        nonzeros.emplace_back(1.0, *it);
+      }
     }
     this->_infer_dimensionality();
     this->_infer_shape();
