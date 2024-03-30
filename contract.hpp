@@ -139,6 +139,50 @@ public:
   NNZ(DT data, CoOrdinate coords) : data(data), coords(coords) {}
 };
 
+template <class DT> class Tensor;
+class SymbolicTensor {
+  std::vector<CoOrdinate> indices;
+  using hashmap_counts = std::unordered_map<CoOrdinate, int>;
+  using iterator = typename std::vector<CoOrdinate>::iterator;
+  iterator begin() { return indices.begin(); }
+  iterator end() { return indices.end(); }
+  void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
+    for (auto &cord : *this) {
+      auto filtered_coords = cord.gather(contraction);
+      auto ref = indexed_tensor.find(filtered_coords);
+      if (ref != indexed_tensor.end()) {
+        ref->second += 1;
+      } else {
+        indexed_tensor[filtered_coords] = 1;
+      }
+    }
+    return;
+  }
+
+public:
+  template <class DT> SymbolicTensor(Tensor<DT> &some_tensor) {
+    for (auto &nnz : some_tensor) {
+      indices.push_back(nnz.get_coords());
+    }
+  }
+  int count_ops(SymbolicTensor &other, CoOrdinate left_contraction,
+                CoOrdinate right_contraction) {
+    assert(left_contraction.get_dimensionality() ==
+           right_contraction.get_dimensionality());
+    std::unordered_map<CoOrdinate, int> first_index;
+    this->index_counts(left_contraction, first_index);
+    std::unordered_map<CoOrdinate, int> second_index;
+    other.index_counts(right_contraction, second_index);
+    int ops = 0;
+    for (auto &entry : first_index) {
+      auto ref = second_index.find(entry.first);
+      if (ref != second_index.end()) {
+        ops += entry.second * ref->second;
+      }
+    }
+    return ops;
+  }
+};
 template <class DT> class Tensor {
 private:
   std::vector<NNZ<DT>> nonzeros;
@@ -213,18 +257,18 @@ public:
     return DT();
   }
 
-  void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
-    for (auto &nnz : *this) {
-      auto filtered_coords = nnz.get_coords().gather(contraction);
-      auto ref = indexed_tensor.find(filtered_coords);
-      if (ref != indexed_tensor.end()) {
-        ref->second += 1;
-      } else {
-        indexed_tensor[filtered_coords] = 1;
-      }
-    }
-    return;
-  }
+  // void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
+  //   for (auto &nnz : *this) {
+  //     auto filtered_coords = nnz.get_coords().gather(contraction);
+  //     auto ref = indexed_tensor.find(filtered_coords);
+  //     if (ref != indexed_tensor.end()) {
+  //       ref->second += 1;
+  //     } else {
+  //       indexed_tensor[filtered_coords] = 1;
+  //     }
+  //   }
+  //   return;
+  // }
 
   // Change this to add only the batch indices to the hashmap set.
   /// contraction is the positions of the dimensions in the tensor that we need
@@ -352,22 +396,28 @@ public:
     return output_tensor;
   }
 
-  int count_ops(Tensor &other, CoOrdinate left_contraction,
+  template<class RIGHT> int count_ops(Tensor<RIGHT> &other, CoOrdinate left_contraction,
                 CoOrdinate right_contraction) {
     assert(left_contraction.get_dimensionality() ==
            right_contraction.get_dimensionality());
-    hashmap_counts first_index;
-    this->index_counts(left_contraction, first_index);
-    hashmap_counts second_index;
-    other.index_counts(right_contraction, second_index);
-    int ops = 0;
-    for (auto &entry : first_index) {
-      auto ref = second_index.find(entry.first);
-      if (ref != second_index.end()) {
-        ops += entry.second * ref->second;
-      }
-    }
-    return ops;
+    SymbolicTensor left = SymbolicTensor(*this);
+    SymbolicTensor right = SymbolicTensor(other);
+    return left.count_ops(right, left_contraction, right_contraction);
+
+    // assert(left_contraction.get_dimensionality() ==
+    //        right_contraction.get_dimensionality());
+    // hashmap_counts first_index;
+    // this->index_counts(left_contraction, first_index);
+    // hashmap_counts second_index;
+    // other.index_counts(right_contraction, second_index);
+    // int ops = 0;
+    // for (auto &entry : first_index) {
+    //   auto ref = second_index.find(entry.first);
+    //   if (ref != second_index.end()) {
+    //     ops += entry.second * ref->second;
+    //   }
+    // }
+    // return ops;
   }
 };
 #endif
