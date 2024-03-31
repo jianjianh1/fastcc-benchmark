@@ -15,8 +15,6 @@ template <typename T> static std::size_t hasharray(int size, T *arr) {
 }
 
 class CoOrdinate {
-  // int *coords;
-  // int dimensionality;
   std::vector<int> coords;
 
 public:
@@ -74,7 +72,6 @@ public:
   int get_index(int dim) const { return coords[dim]; }
   int get_dimensionality() const { return coords.size(); }
   bool operator==(const CoOrdinate &other) const {
-    // TODO we might have to make all permutations equal to one another.
     if (this->get_dimensionality() != other.get_dimensionality()) {
       return false;
     }
@@ -131,7 +128,6 @@ public:
   DT get_data() { return data; }
 
   CoOrdinate get_coords() { return coords; }
-  // careful, this will move out the co-ordinates.
 
   // Constructor for a given value and coordinates
   NNZ(DT data, int dimensionality, int *coords)
@@ -143,6 +139,9 @@ template <class DT> class Tensor;
 class SymbolicTensor {
   std::vector<CoOrdinate> indices;
   using hashmap_counts = std::unordered_map<CoOrdinate, int>;
+  using hashmap_shape =
+      std::unordered_map<CoOrdinate,
+                         std::vector<std::pair<CoOrdinate, CoOrdinate>>>;
   using iterator = typename std::vector<CoOrdinate>::iterator;
   iterator begin() { return indices.begin(); }
   iterator end() { return indices.end(); }
@@ -165,6 +164,11 @@ public:
       indices.push_back(nnz.get_coords());
     }
   }
+  template <class It> SymbolicTensor(It begin, It end) {
+    for (auto it = begin; it != end; it++) {
+      indices.emplace_back(*it);
+    }
+  }
   int count_ops(SymbolicTensor &other, CoOrdinate left_contraction,
                 CoOrdinate right_contraction) {
     assert(left_contraction.get_dimensionality() ==
@@ -181,6 +185,64 @@ public:
       }
     }
     return ops;
+  }
+
+  void index_shape(CoOrdinate contraction, CoOrdinate batch,
+                   hashmap_shape &indexed_tensor) {
+    for (auto &cord : *this) {
+      auto index_positions = CoOrdinate(batch, contraction);
+      auto index_coords = cord.gather(index_positions);
+      auto batch_coords = cord.gather(batch);
+      auto external_coords = cord.remove(index_positions);
+      auto ref = indexed_tensor.find(index_coords);
+      if (ref != indexed_tensor.end()) {
+        ref->second.push_back({batch_coords, external_coords});
+      } else {
+        indexed_tensor[index_coords] = {{batch_coords, external_coords}};
+      }
+    }
+    return;
+  }
+
+  // Returns a set of coordinates that are the result of the contraction of two
+  // tensors.
+  // order is: (batch indices, left external indices, right external indices).
+  // order within batch indices is dependent on the left operand
+  std::unordered_set<CoOrdinate> output_shape(SymbolicTensor &other,
+                                              CoOrdinate left_contr,
+                                              CoOrdinate left_batch,
+                                              CoOrdinate right_contr,
+                                              CoOrdinate right_batch) {
+    hashmap_shape first_index;
+    this->index_shape(left_contr, left_batch, first_index);
+    hashmap_shape second_index;
+    other.index_shape(right_contr, right_batch, second_index);
+    std::unordered_set<CoOrdinate> output;
+    // Join on the keys of the map, cartesian product of the values.
+    for (auto &entry : first_index) {
+      auto ref = second_index.find(entry.first);
+      if (ref != second_index.end()) {
+        for (auto &leftcord : entry.second) {
+          for (auto &rightcord : ref->second) {
+            CoOrdinate batch_coords = leftcord.first;
+            CoOrdinate external_coords =
+                CoOrdinate(leftcord.second, rightcord.second);
+            CoOrdinate output_coords =
+                CoOrdinate(batch_coords, external_coords);
+            output.insert(output_coords);
+          }
+        }
+      }
+    }
+    return output;
+  }
+
+  SymbolicTensor contract(SymbolicTensor &other, CoOrdinate left_contraction,
+                          CoOrdinate left_batch, CoOrdinate right_contraction,
+                          CoOrdinate right_batch) {
+    std::unordered_set<CoOrdinate> output_coords = this->output_shape(
+        other, left_contraction, left_batch, right_contraction, right_batch);
+    return SymbolicTensor(output_coords.begin(), output_coords.end());
   }
 };
 template <class DT> class Tensor {
@@ -257,42 +319,6 @@ public:
     return DT();
   }
 
-  // void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
-  //   for (auto &nnz : *this) {
-  //     auto filtered_coords = nnz.get_coords().gather(contraction);
-  //     auto ref = indexed_tensor.find(filtered_coords);
-  //     if (ref != indexed_tensor.end()) {
-  //       ref->second += 1;
-  //     } else {
-  //       indexed_tensor[filtered_coords] = 1;
-  //     }
-  //   }
-  //   return;
-  // }
-
-  // Change this to add only the batch indices to the hashmap set.
-  /// contraction is the positions of the dimensions in the tensor that we need
-  /// to contract out. same for batch.
-  void index_shape(CoOrdinate contraction, CoOrdinate batch,
-                   hashmap_shape &indexed_tensor) {
-    if (this->dimensionality == 0) {
-      this->_infer_dimensionality();
-    }
-    for (auto &nnz : *this) {
-      auto index_positions = CoOrdinate(batch, contraction);
-      auto index_coords = nnz.get_coords().gather(index_positions);
-      auto batch_coords = nnz.get_coords().gather(batch);
-      auto external_coords = nnz.get_coords().remove(index_positions);
-      auto ref = indexed_tensor.find(index_coords);
-      if (ref != indexed_tensor.end()) {
-        ref->second.push_back({batch_coords, external_coords});
-      } else {
-        indexed_tensor[index_coords] = {{batch_coords, external_coords}};
-      }
-    }
-    return;
-  }
-
   // Returns a set of coordinates that are the result of the contraction of two
   // tensors.
   // order is: (batch indices, left external indices, right external indices).
@@ -300,28 +326,9 @@ public:
   std::unordered_set<CoOrdinate>
   output_shape(Tensor &other, CoOrdinate left_contr, CoOrdinate left_batch,
                CoOrdinate right_contr, CoOrdinate right_batch) {
-    hashmap_shape first_index;
-    this->index_shape(left_contr, left_batch, first_index);
-    hashmap_shape second_index;
-    other.index_shape(right_contr, right_batch, second_index);
-    std::unordered_set<CoOrdinate> output;
-    // Join on the keys of the map, cartesian product of the values.
-    for (auto &entry : first_index) {
-      auto ref = second_index.find(entry.first);
-      if (ref != second_index.end()) {
-        for (auto &leftcord : entry.second) {
-          for (auto &rightcord : ref->second) {
-            CoOrdinate batch_coords = leftcord.first;
-            CoOrdinate external_coords =
-                CoOrdinate(leftcord.second, rightcord.second);
-            CoOrdinate output_coords =
-                CoOrdinate(batch_coords, external_coords);
-            output.insert(output_coords);
-          }
-        }
-      }
-    }
-    return output;
+    auto right_symbolic = SymbolicTensor(other);
+    return SymbolicTensor(*this).output_shape(
+        right_symbolic, left_contr, left_batch, right_contr, right_batch);
   }
 
   Tensor contract(Tensor &other, CoOrdinate left_contraction,
@@ -343,9 +350,9 @@ public:
     // to accumulate (+=) in-place with another object of the same abstract
     // type.
     hashmap_shape first_index;
-    this->index_shape(left_contr, left_batch, first_index);
+    SymbolicTensor(*this).index_shape(left_contr, left_batch, first_index);
     hashmap_shape second_index;
-    other.index_shape(right_contr, right_batch, second_index);
+    SymbolicTensor(other).index_shape(right_contr, right_batch, second_index);
     std::unordered_map<CoOrdinate, RES> output;
     // Join on the keys of the map, cartesian product of the values.
     for (auto &entry : first_index) {
@@ -396,28 +403,14 @@ public:
     return output_tensor;
   }
 
-  template<class RIGHT> int count_ops(Tensor<RIGHT> &other, CoOrdinate left_contraction,
+  template <class RIGHT>
+  int count_ops(Tensor<RIGHT> &other, CoOrdinate left_contraction,
                 CoOrdinate right_contraction) {
     assert(left_contraction.get_dimensionality() ==
            right_contraction.get_dimensionality());
     SymbolicTensor left = SymbolicTensor(*this);
     SymbolicTensor right = SymbolicTensor(other);
     return left.count_ops(right, left_contraction, right_contraction);
-
-    // assert(left_contraction.get_dimensionality() ==
-    //        right_contraction.get_dimensionality());
-    // hashmap_counts first_index;
-    // this->index_counts(left_contraction, first_index);
-    // hashmap_counts second_index;
-    // other.index_counts(right_contraction, second_index);
-    // int ops = 0;
-    // for (auto &entry : first_index) {
-    //   auto ref = second_index.find(entry.first);
-    //   if (ref != second_index.end()) {
-    //     ops += entry.second * ref->second;
-    //   }
-    // }
-    // return ops;
   }
 };
 #endif
