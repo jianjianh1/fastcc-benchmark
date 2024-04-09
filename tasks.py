@@ -1,13 +1,13 @@
 import invoke
 extension_name = "sparse_opcnt"
 invoke.run(
-    "g++ -O3 -Wall -shared -std=c++11 -fPIC driver.cc "
+    "g++ -O3 -I/home/saurabh/taskflow -shared -std=c++2a -fPIC driver.cc "
     "-o libspcnt.so "
 )
 invoke.run(
-    "g++ -O3 -Wall -shared -std=c++11 -fPIC "
+    "g++ -O3 -shared -std=c++2a -fPIC "
     "`python3 -m pybind11 --includes` "
-    "-I /usr/include/python3.7 -I .  "
+    "-I /usr/include/python3.7 -I . -I/home/saurabh/taskflow "
     "pybind_wrapper.cpp "
     "-o {0}`python3.10-config --extension-suffix` "
     "-L. -lspcnt -Wl,-rpath,.".format(extension_name)

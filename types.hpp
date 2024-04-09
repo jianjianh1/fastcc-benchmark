@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <vector>
 
+class densemat;
 class densevec {
   int size = 0;
   double *values;
@@ -46,6 +47,17 @@ public:
     }
     return result;
   }
+  densevec operator+=(densevec other) {
+    if (size != other.size) {
+      std::cerr << "Vector sizes do not match for an addition. Left is " << size
+                << ", while right is " << other.getsize() << std::endl;
+      return densevec();
+    }
+    for (int i = 0; i < size; i++) {
+      values[i] += other(i);
+    }
+    return *this;
+  }
   double operator*(densevec other) {
     if (size != other.size) {
       std::cerr << "Vector sizes do not match for an inner product"
@@ -58,6 +70,9 @@ public:
     }
     return result;
   }
+
+  densemat outer(densevec other);
+
   void free() { delete[] values; }
 };
 densevec operator*(double k, densevec other) { return other * k; }
@@ -79,18 +94,19 @@ public:
   densemat(std::vector<double> some_data) {
     int root = int(sqrt(some_data.size()));
     if (root * root != some_data.size()) {
-      std::cerr << "Matrix data is not square" << std::endl;
+      std::cerr << "Matrix data is not square, size of vec is "
+                << some_data.size() << std::endl;
       exit(1);
     }
     size = root;
-    values = new double[size*size];
-    for (int i = 0; i < size*size; i++) {
+    values = new double[size * size];
+    for (int i = 0; i < size * size; i++) {
       values[i] = some_data[i];
     }
   }
   std::string to_string() {
     std::string result = "";
-    for (int i = 0; i < size*size; i++) {
+    for (int i = 0; i < size * size; i++) {
       result += std::to_string(values[i]) + " ";
     }
     return result;
@@ -160,6 +176,17 @@ public:
     return result;
   }
 };
+densemat densevec::outer(densevec other) {
+  std::vector<double> res_data;
+  for (int i = 0; i < size; i++) {
+    for (int j = 0; j < other.size; j++) {
+      res_data.push_back(values[i] * other(j));
+    }
+  }
+  densemat result = densemat(res_data);
+  return result;
+}
+
 
 densemat operator*(double k, densemat other) { return other * k; }
 densevec operator*(densevec vec, densemat mat) { return mat * vec; }

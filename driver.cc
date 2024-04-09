@@ -1,5 +1,6 @@
 #include "contract.hpp"
 #include "read.hpp"
+#include "task_queue.hpp"
 #include <chrono>
 #include <iostream>
 #include <iterator>
@@ -405,7 +406,7 @@ void sparse_gemm(Tensor<float> some) {
   //     some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}),
   //     CoOrdinate({}));
   // auto num_ops = some.count_ops(some, CoOrdinate({1}), CoOrdinate({0}));
-  Tensor<float> output_matrix = some.multiply<float>(
+  auto output_matrix = some.multiply<float>(
       some, CoOrdinate({1}), CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}));
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
@@ -430,15 +431,28 @@ void t2_pno_dgemm() {
   res_lmo_lmo.write("T2_out.tns");
 }
 
-void t1_pno_vecinner(){
-    Tensor<densevec> t1("T1.tns", true);
-    Tensor<double> res_lmo_lmo =
-        t1.multiply<double, densevec>(t1, CoOrdinate({}), CoOrdinate({0}),
-                                        CoOrdinate({}), CoOrdinate({0}));
-    res_lmo_lmo.write("T1_out.tns");
+void t1_pno_vecinner() {
+  Tensor<densevec> t1("T1.tns", true);
+  Tensor<double> res_lmo_lmo = t1.multiply<double, densevec>(
+      t1, CoOrdinate({}), CoOrdinate({0}), CoOrdinate({}), CoOrdinate({0}));
+  std::cout << "Num ops " << t1.count_ops(t1, CoOrdinate({0}), CoOrdinate({0}))
+            << std::endl;
+  res_lmo_lmo.write("T1_out.tns");
+}
 
+void task_queue() {
+  TaskQueue tq;
+  Tensor<densemat> t2("T2.tns", true);
+  Tensor<densemat> res(t2.get_size());
+  tq.addContraction(res, t2, t2, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}),
+                    CoOrdinate({0, 1}));
+  tq.run();
+  res.write("T2_out.tns");
+  Tensor<densemat> res_vanilla = t2.multiply<densemat, densemat>(
+      t2, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}), CoOrdinate({0, 1}));
+  res_vanilla.write("T2_out_vanilla.tns");
 }
 
 int main() {
-  t1_pno_vecinner();
+    task_queue();
 }

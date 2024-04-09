@@ -142,9 +142,6 @@ class SymbolicTensor {
   using hashmap_shape =
       std::unordered_map<CoOrdinate,
                          std::vector<std::pair<CoOrdinate, CoOrdinate>>>;
-  using iterator = typename std::vector<CoOrdinate>::iterator;
-  iterator begin() { return indices.begin(); }
-  iterator end() { return indices.end(); }
   void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
     for (auto &cord : *this) {
       auto filtered_coords = cord.gather(contraction);
@@ -159,6 +156,9 @@ class SymbolicTensor {
   }
 
 public:
+  using iterator = typename std::vector<CoOrdinate>::iterator;
+  iterator begin() { return indices.begin(); }
+  iterator end() { return indices.end(); }
   template <class DT> SymbolicTensor(Tensor<DT> &some_tensor) {
     for (auto &nnz : some_tensor) {
       indices.push_back(nnz.get_coords());
@@ -284,6 +284,17 @@ public:
     this->_infer_dimensionality();
     this->_infer_shape();
   }
+  Tensor(SymbolicTensor &sym) {
+    for (auto &cord : sym) {
+      if constexpr (std::is_class<DT>::value) {
+        nonzeros.emplace_back(DT(), cord);
+      } else {
+        nonzeros.emplace_back(0.0, cord);
+      }
+    }
+    this->_infer_dimensionality();
+    this->_infer_shape();
+  }
   Tensor(int size) { nonzeros.reserve(size); }
   std::vector<NNZ<DT>> &get_nonzeros() { return nonzeros; }
   int get_size() { return nonzeros.size(); }
@@ -367,8 +378,17 @@ public:
                 CoOrdinate(batch_coords, external_coords);
             auto ref = output.find(output_coords);
             if (ref != output.end()) {
-              ref->second += this->get_valat(leftcord.first) *
-                             other.get_valat(rightcord.first);
+              RES outp;
+              if constexpr (std::is_same<DT, densevec>() &&
+                            std::is_same<RIGHT, densevec>() &&
+                            std::is_same<RES, densemat>()) {
+                outp = this->get_valat(leftcord.first)
+                           .densevec::outer(other.get_valat(rightcord.first));
+              } else {
+                outp = this->get_valat(leftcord.first) *
+                       other.get_valat(rightcord.first);
+              }
+              ref->second += outp;
             } else {
 
               // if constexpr (std::is_class<DT>::value) {
@@ -389,8 +409,17 @@ public:
               //   other.get_valat(rightcord.first)
               //             << std::endl;
               // }
-              output[output_coords] = this->get_valat(leftcord.first) *
-                                      other.get_valat(rightcord.first);
+              RES outp;
+              if constexpr (std::is_same<DT, densevec>() &&
+                            std::is_same<RIGHT, densevec>() &&
+                            std::is_same<RES, densemat>()) {
+                outp = this->get_valat(leftcord.first)
+                           .densevec::outer(other.get_valat(rightcord.first));
+              } else {
+                outp = this->get_valat(leftcord.first) *
+                       other.get_valat(rightcord.first);
+              }
+              output[output_coords] = outp;
             }
           }
         }
@@ -400,7 +429,23 @@ public:
     for (auto &entry : output) {
       output_tensor.get_nonzeros().emplace_back(entry.second, entry.first);
     }
+    output_tensor._infer_dimensionality();
+    output_tensor._infer_shape();
     return output_tensor;
+  }
+
+  template <class L, class R>
+  void fill_values(Tensor<L> left, Tensor<R> right, CoOrdinate left_contr,
+                   CoOrdinate left_batch, CoOrdinate right_contr,
+                   CoOrdinate right_batch) {
+    Tensor<DT> result = left.Tensor<L>::template multiply<DT, R>(
+        right, left_contr, left_batch, right_contr, right_batch);
+    for (auto &nnz : result) {
+      auto coords = nnz.get_coords();
+      this->get_nonzeros().emplace_back(nnz.get_data(), coords);
+    }
+    this->_infer_dimensionality();
+    this->_infer_shape();
   }
 
   template <class RIGHT>
