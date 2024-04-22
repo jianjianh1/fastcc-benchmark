@@ -51,7 +51,7 @@ public:
     if (size != other.size) {
       std::cerr << "Vector sizes do not match for an addition. Left is " << size
                 << ", while right is " << other.getsize() << std::endl;
-      return densevec();
+      exit(1);
     }
     for (int i = 0; i < size; i++) {
       values[i] += other(i);
@@ -62,7 +62,9 @@ public:
     if (size != other.size) {
       std::cerr << "Vector sizes do not match for an inner product"
                 << std::endl;
-      return -1;
+      std::cerr << "Left is " << size << ", while right is " << other.getsize()
+                << std::endl;
+      exit(1);
     }
     double result = 0.0;
     for (int i = 0; i < size; i++) {
@@ -115,7 +117,7 @@ public:
     if (size != other.size) {
       std::cerr << "Matrix sizes do not match for an addition. Left is " << size
                 << ", while right is " << other.getsize() << std::endl;
-      return densemat();
+      exit(1);
     }
     for (int i = 0; i < size * size; i++) {
       values[i] += other(i / size, i % size);
@@ -141,7 +143,9 @@ public:
     if (size != other.size) {
       std::cerr << "Matrix sizes do not match for a matrix product"
                 << std::endl;
-      return densemat();
+      std::cerr << "Left is " << size << ", while right is " << other.getsize()
+                << std::endl;
+      exit(1);
     }
     std::vector<double> res_data;
     for (int i = 0; i < size; i++) {
@@ -162,7 +166,7 @@ public:
       std::cerr
           << "Matrix and vector sizes do not match for a matrix-vector product"
           << std::endl;
-      return densevec();
+      exit(1);
     }
     std::vector<double> res_data;
     for (int i = 0; i < size; i++) {
@@ -186,7 +190,6 @@ densemat densevec::outer(densevec other) {
   densemat result = densemat(res_data);
   return result;
 }
-
 
 densemat operator*(double k, densemat other) { return other * k; }
 densevec operator*(densevec vec, densemat mat) { return mat * vec; }

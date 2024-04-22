@@ -52,6 +52,14 @@ public:
                 << " Tensor: " << this->get_dimensionality() << std::endl;
     }
     assert(positions.get_dimensionality() <= this->get_dimensionality());
+    // TODO remove before flight
+    for(auto &cord: positions){
+        if(cord >= this->get_dimensionality()){
+            std::cout<<"Error, trying to gather a coordinate that doesn't exist"<<std::endl;
+            std::cout<<"Asked for "<<cord<<" in a tensor of dimensionality "<<this->get_dimensionality()<<std::endl;
+            exit(1);
+        }
+    }
     std::vector<int> gathered;
     for (int i = 0; i < positions.get_dimensionality(); i++) {
       gathered.push_back(coords[positions.get_index(i)]);
@@ -245,11 +253,49 @@ public:
     return SymbolicTensor(output_coords.begin(), output_coords.end());
   }
 };
+template <class DT> class IndexedTensor {
+  using hashmap_vals =
+      std::unordered_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
+public:
+  hashmap_vals indexed_tensor;
+
+  IndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
+    for (auto &nnz : base_tensor) {
+      auto it = indexed_tensor.find(nnz.get_coords().gather(index_coords));
+      if (it != indexed_tensor.end()) {
+        it->second.push_back(
+            {nnz.get_coords().remove(index_coords), nnz.get_data()});
+      } else {
+        indexed_tensor[nnz.get_coords().gather(index_coords)] = {
+            {nnz.get_coords().remove(index_coords), nnz.get_data()}};
+      }
+    }
+  }
+  DT get_valat(CoOrdinate index_coords, CoOrdinate remaining_coords) {
+    auto it = indexed_tensor.find(index_coords);
+    if (it != indexed_tensor.end()) {
+      for (auto &pair : it->second) {
+        if (pair.first == remaining_coords) {
+          return pair.second;
+        }
+      }
+      std::cerr << "Found outer cord, can't find inner coordinate" << std::endl;
+      exit(1);
+    } else {
+      std::cerr << "Can't even find outer coord" << index_coords.to_string()
+                << std::endl;
+      for(auto &cord: indexed_tensor){
+        std::cout<<cord.first.to_string()<<std::endl;
+      }
+      exit(1);
+    }
+  }
+};
 template <class DT> class Tensor {
 private:
   std::vector<NNZ<DT>> nonzeros;
   int *shape;
-  int dimensionality;
+  int dimensionality = 42;
   using hashmap_counts = std::unordered_map<CoOrdinate, int>;
   using hashmap_shape =
       std::unordered_map<CoOrdinate,
@@ -262,6 +308,7 @@ public:
   iterator end() { return nonzeros.end(); }
   Tensor(std::string fname, bool);
   void write(std::string fname);
+  int get_dimensionality() { return dimensionality; }
   // Constructor for a tensor of given shape and number of non-zeros, fills with
   // random values and indices
   Tensor(int size, int dimensionality, int *shape) {
@@ -327,7 +374,9 @@ public:
       } else {
       }
     }
-    return DT();
+    std::cerr << "Error, trying to access a non-existent coordinate"
+              << std::endl;
+    exit(1);
   }
 
   // Returns a set of coordinates that are the result of the contraction of two
@@ -362,13 +411,30 @@ public:
     // type.
     hashmap_shape first_index;
     SymbolicTensor(*this).index_shape(left_contr, left_batch, first_index);
+    //for(auto &nnz: other){
+    //  std::cout<<"Base tensor keys "<<nnz.get_coords().to_string()<<std::endl;
+    //}
+    //std::cout<<"Right contraction "<<right_contr.to_string()<<std::endl;
+    //std::cout<<"Right batch "<<right_batch.to_string()<<std::endl;
     hashmap_shape second_index;
     SymbolicTensor(other).index_shape(right_contr, right_batch, second_index);
+    //for(auto &cord: second_index){
+    //  std::cout<<"Sym tensor keys "<<cord.first.to_string()<<std::endl;
+    //}
+    auto left_indcords = CoOrdinate(left_batch, left_contr);
+    IndexedTensor<DT> this_indexed(*this, left_indcords);
+    auto right_indcords = CoOrdinate(right_batch, right_contr);
+    IndexedTensor<RIGHT> other_indexed(other, right_indcords);
+    //for(auto &cord: other_indexed.indexed_tensor){
+    //  std::cout<<"IndexedTensor keys "<<cord.first.to_string()<<std::endl;
+    //}
     std::unordered_map<CoOrdinate, RES> output;
+    //std::cout<<"Starting to form output hashmap, gonna coiterate"<<std::endl;
     // Join on the keys of the map, cartesian product of the values.
     for (auto &entry : first_index) {
       auto ref = second_index.find(entry.first);
-      if (ref != second_index.end()) {
+      if (ref != second_index.end() && second_index.size() > 0) {
+          //std::cout<<"Found a match "<<entry.first.to_string()<<std::endl;
         for (auto &leftcord : entry.second) {
           for (auto &rightcord : ref->second) {
             CoOrdinate batch_coords = leftcord.first;
@@ -377,16 +443,19 @@ public:
             CoOrdinate output_coords =
                 CoOrdinate(batch_coords, external_coords);
             auto ref = output.find(output_coords);
-            if (ref != output.end()) {
+            if (ref != output.end() && output.size() > 0) {
+              // This is a weird behaviour where if the hashmap is empty, we get
+              // a dangling iterator that causes a segfault.
               RES outp;
               if constexpr (std::is_same<DT, densevec>() &&
                             std::is_same<RIGHT, densevec>() &&
                             std::is_same<RES, densemat>()) {
-                outp = this->get_valat(leftcord.first)
-                           .densevec::outer(other.get_valat(rightcord.first));
+                outp = this_indexed.get_valat(entry.first, leftcord.second)
+                           .densevec::outer(other_indexed.get_valat(
+                               entry.first, rightcord.second));
               } else {
-                outp = this->get_valat(leftcord.first) *
-                       other.get_valat(rightcord.first);
+                outp = this_indexed.get_valat(entry.first, leftcord.second) *
+                       other_indexed.get_valat(entry.first, rightcord.second);
               }
               ref->second += outp;
             } else {
@@ -413,11 +482,14 @@ public:
               if constexpr (std::is_same<DT, densevec>() &&
                             std::is_same<RIGHT, densevec>() &&
                             std::is_same<RES, densemat>()) {
-                outp = this->get_valat(leftcord.first)
-                           .densevec::outer(other.get_valat(rightcord.first));
+                outp = this_indexed.get_valat(entry.first, leftcord.second)
+                           .densevec::outer(other_indexed.get_valat(
+                               entry.first, rightcord.second));
               } else {
-                outp = this->get_valat(leftcord.first) *
-                       other.get_valat(rightcord.first);
+                auto lop = this_indexed.get_valat(entry.first, leftcord.second);
+                auto rop =
+                    other_indexed.get_valat(entry.first, rightcord.second);
+                outp = lop * rop;
               }
               output[output_coords] = outp;
             }
@@ -425,6 +497,7 @@ public:
         }
       }
     }
+    //std::cout<<"Output hashmap formed"<<std::endl;
     Tensor<RES> output_tensor(output.size());
     for (auto &entry : output) {
       output_tensor.get_nonzeros().emplace_back(entry.second, entry.first);
@@ -435,7 +508,7 @@ public:
   }
 
   template <class L, class R>
-  void fill_values(Tensor<L> left, Tensor<R> right, CoOrdinate left_contr,
+  void fill_values(Tensor<L> &left, Tensor<R> &right, CoOrdinate left_contr,
                    CoOrdinate left_batch, CoOrdinate right_contr,
                    CoOrdinate right_batch) {
     Tensor<DT> result = left.Tensor<L>::template multiply<DT, R>(
@@ -444,6 +517,7 @@ public:
       auto coords = nnz.get_coords();
       this->get_nonzeros().emplace_back(nnz.get_data(), coords);
     }
+    //std::cout<<"multiplication done"<<std::endl;
     this->_infer_dimensionality();
     this->_infer_shape();
   }
