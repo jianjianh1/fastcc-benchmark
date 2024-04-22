@@ -265,7 +265,89 @@ void fourd_tensor_contraction() {
   std::cout << "Count using HT " << num_mults << std::endl;
 }
 
-void dlpno_4cint(Tensor<float> teov, Tensor<float> tevv) {
+
+void fourd_tensor_contraction_numeric() {
+  const int NNZ_COUNT = 5000;
+  const int NUM_CONTR = 4;
+  // I(7, 11, 9, 11) = T0(7, 11, 10, 12, 9) * T1(7, 11, 10, 12, 11);
+  int a_shape[5] = {7, 11, 10, 12, 9};
+  int b_shape[5] = {7, 11, 10, 12, 11};
+  Tensor<float> A(NNZ_COUNT);
+  int a_ctr = 0;
+  for (int i = 0; i < 7; i++) {
+    for (int j = 0; j < 11; j++) {
+      for (int k = 0; k < 10; k++) {
+        for (int l = 0; l < 12; l++) {
+          for (int m = 0; m < 9; m++) {
+            if (a_ctr == NNZ_COUNT)
+              break;
+
+            int coords[5] = {i, j, k, l, m};
+            A.get_nonzeros().push_back(NNZ<float>(1.0, 5, coords));
+            a_ctr++;
+          }
+        }
+      }
+    }
+  }
+  Tensor<float> B(NNZ_COUNT);
+  int b_ctr = 0;
+  for (int i = 0; i < 7; i++) {
+    for (int j = 0; j < 11; j++) {
+      for (int k = 0; k < 10; k++) {
+        for (int l = 0; l < 12; l++) {
+          for (int m = 0; m < 11; m++) {
+            if (b_ctr == NNZ_COUNT)
+              break;
+
+            int coords[5] = {i, j, k, l, m};
+            B.get_nonzeros().push_back(NNZ<float>(1.0, 5, coords));
+            b_ctr++;
+          }
+        }
+      }
+    }
+  }
+  auto left_c = CoOrdinate({2, 3});
+  auto left_b = CoOrdinate({0, 1});
+  auto right_c = CoOrdinate({2, 3});
+  auto right_b = CoOrdinate({0, 1});
+  std::chrono::high_resolution_clock::time_point t1 =
+      std::chrono::high_resolution_clock::now();
+  auto res_tensor = A.multiply<float>(B, left_c, left_b, right_c, right_b);
+  std::chrono::high_resolution_clock::time_point t2 =
+      std::chrono::high_resolution_clock::now();
+  std::cout
+      << "Time taken for mult "
+      << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+      << std::endl;
+  //FlopCounter<float> counter;
+  //for (int i = 0; i < 7; i++) {
+  //  for (int j = 0; j < 11; j++) {
+  //    for (int k = 0; k < 9; k++) {
+  //      for (int l = 0; l < 11; l++) {
+  //        int accum = 0;
+  //        for (int m = 0; m < 10; m++) {
+  //          for (int n = 0; n < 12; n++) {
+  //            int left[5] = {i, j, m, n, k};
+  //            int right[5] = {i, j, m, n, l};
+  //            auto leftcord = CoOrdinate(5, left);
+  //            auto rightcord = CoOrdinate(5, right);
+  //            float left_val = A.get_valat(leftcord);
+  //            float right_val = B.get_valat(rightcord);
+  //            if (left_val != -1 && right_val != -1)
+  //              accum += counter.mul(left_val, right_val);
+  //          }
+  //        }
+  //      }
+  //    }
+  //  }
+  //}
+  //std::cout << "Count using FlopCounter " << counter.get_mults() << std::endl;
+  //std::cout << "Count using HT " << num_mults << std::endl;
+}
+
+void dlpno_4cint(Tensor<float> teov) {
   auto left_c = CoOrdinate({2});
   auto right_c = CoOrdinate({2});
   const int PAO = 60;
@@ -273,35 +355,35 @@ void dlpno_4cint(Tensor<float> teov, Tensor<float> tevv) {
   const int AUX = 60;
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
-  int num_mults = teov.count_ops(tevv, left_c, right_c);
+  auto res = teov.multiply<float>(teov, left_c, CoOrdinate({}), right_c, CoOrdinate({}));
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
   std::cout
-      << "Time taken for count_ops "
+      << "Time taken for mult "
       << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
       << std::endl;
-  std::cout << "Count using HT " << num_mults << std::endl;
-  FlopCounter<float> counter;
-  for (int b = 0; b < PAO; b++) {
-    for (int f = 0; f < PAO; f++) {
-      for (int m = 0; m < MO; m++) {
-        for (int e = 0; e < PAO; e++) {
-          int accum = 0;
-          for (int k = 0; k < AUX; k++) {
-            int left[3] = {b, f, k};
-            int right[3] = {m, e, k};
-            auto leftcord = CoOrdinate(3, left);
-            auto rightcord = CoOrdinate(3, right);
-            float left_val = tevv.get_valat(leftcord);
-            float right_val = teov.get_valat(rightcord);
-            if (left_val != -1 && right_val != -1)
-              accum += counter.mul(left_val, right_val);
-          }
-        }
-      }
-    }
-  }
-  std::cout << "Count using FlopCounter " << counter.get_mults() << std::endl;
+  //std::cout << "Count using HT " << num_mults << std::endl;
+  //FlopCounter<float> counter;
+  //for (int b = 0; b < PAO; b++) {
+  //  for (int f = 0; f < PAO; f++) {
+  //    for (int m = 0; m < MO; m++) {
+  //      for (int e = 0; e < PAO; e++) {
+  //        int accum = 0;
+  //        for (int k = 0; k < AUX; k++) {
+  //          int left[3] = {b, f, k};
+  //          int right[3] = {m, e, k};
+  //          auto leftcord = CoOrdinate(3, left);
+  //          auto rightcord = CoOrdinate(3, right);
+  //          float left_val = tevv.get_valat(leftcord);
+  //          float right_val = teov.get_valat(rightcord);
+  //          if (left_val != -1 && right_val != -1)
+  //            accum += counter.mul(left_val, right_val);
+  //        }
+  //      }
+  //    }
+  //  }
+  //}
+  //std::cout << "Count using FlopCounter " << counter.get_mults() << std::endl;
 }
 
 void fourd_tensor_contraction_shape() {
@@ -454,5 +536,7 @@ void task_queue() {
 }
 
 int main() {
-    task_queue();
+    //task_queue();
+    Tensor<float> teov("teov.tns", true);
+    dlpno_4cint(teov);
 }
