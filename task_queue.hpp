@@ -3,9 +3,15 @@
 
 class TaskQueue {
   tf::Taskflow taskflow;
+  // At the end of the symbolic analysis, this contains the task DAG.
+  // We should put the loop until convergence in this class structure.
+  // The doubles and singles results can be held in this class as well.
+  // We just need to mark the tensors that are updated in each iteration of the loop.
+  //
   //tf::Executor executor{1};
   tf::Executor executor;
   int task_id = 0;
+  Tensor<densemat> doubles_result = Tensor<densemat>(0);
 
 public:
   void run() {
@@ -50,9 +56,13 @@ public:
                              right_batch);
           //std::cout << "Result is " << result.get_dimensionality() << "D"
           //          << std::endl;
-          //std::cout << "Result has " << result.get_nonzeros().size()
-          //          << std::endl;
+          std::cout << "Result has " << result.get_nonzeros().size()
+                    << std::endl;
         })
         .name(lname + " * " + rname);
+  }
+
+  void updateDoubles(Tensor<densemat> &equation_result) {
+      doubles_result += equation_result;
   }
 };
