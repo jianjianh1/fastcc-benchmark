@@ -56,7 +56,8 @@ PYBIND11_MODULE(sparse_opcnt, m) {
       .def("make_task_mv", &TaskQueue::makeTask<densevec, densemat, densevec>)
       .def("make_task_vm", &TaskQueue::makeTask<densevec, densevec, densemat>)
       .def("update_doubles", &TaskQueue::updateDoubles)
-      .def("run", &TaskQueue::run);
+      .def("write_doubles", &TaskQueue::writeDoubles)
+      .def("loop_until", &TaskQueue::loopUntil);
   pybind11::class_<tf::Task>(m, "Task").def("precede",
                                             &tf::Task::precede<tf::Task &>);
 }
