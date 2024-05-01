@@ -535,8 +535,25 @@ void task_queue() {
   res_vanilla.write("T2_out_vanilla.tns");
 }
 
+void task_queue_loop() {
+    //check for mem leak
+  TaskQueue tq;
+  Tensor<densemat> t2("T2.tns", true);
+  Tensor<densemat> res(t2.get_size());
+  tq.addContraction(res, t2, t2, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}),
+                    CoOrdinate({0, 1}));
+  tq.updateDoubles(res);
+  tq.loopUntil();
+  t2.delete_old_values();
+  res.delete_old_values();
+  //res.write("T2_out.tns");
+  //Tensor<densemat> res_vanilla = t2.multiply<densemat, densemat>(
+  //    t2, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}), CoOrdinate({0, 1}));
+  //res_vanilla.write("T2_out_vanilla.tns");
+}
+
 int main() {
-    //task_queue();
-    Tensor<float> teov("teov.tns", true);
-    dlpno_4cint(teov);
+    task_queue_loop();
+    //Tensor<float> teov("teov.tns", true);
+    //dlpno_4cint(teov);
 }

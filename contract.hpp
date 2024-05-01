@@ -1,15 +1,15 @@
 #ifndef CONTRACT_HPP
 #define CONTRACT_HPP
 #include "types.hpp"
-#include <variant>
 #include <algorithm>
-#include <ranges>
 #include <boost/functional/hash.hpp>
 #include <iostream>
 #include <random>
+#include <ranges>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
+#include <variant>
 #include <vector>
 
 template <typename T> static std::size_t hasharray(int size, T *arr) {
@@ -168,6 +168,7 @@ class SymbolicTensor {
   }
 
 public:
+  ~SymbolicTensor() { indices.clear(); }
   using iterator = typename std::vector<CoOrdinate>::iterator;
   iterator begin() { return indices.begin(); }
   iterator end() { return indices.end(); }
@@ -325,6 +326,14 @@ public:
       nonzeros.emplace_back(dimensionality, shape);
     }
   }
+  void delete_old_values() {
+    if constexpr (std::is_class<DT>::value) {
+      for (auto &nnz : nonzeros) {
+        nnz.get_data().free();
+      }
+    }
+    nonzeros.clear();
+  }
   // Make a tensor with just ones at given positions
   template <class It> Tensor(It begin, It end) {
     for (auto it = begin; it != end; it++) {
@@ -357,6 +366,7 @@ public:
     }
   }
   void _infer_shape() {
+      //TODO this is a mem-leak. Add a guard before allocation
     if (nonzeros.size() > 0) {
       shape = new int[dimensionality];
       for (int i = 0; i < dimensionality; i++) {
@@ -416,7 +426,8 @@ public:
     // to accumulate (+=) in-place with another object of the same abstract
     // type.
     hashmap_shape first_index;
-    SymbolicTensor(*this).index_shape(left_contr, left_batch, first_index);
+    auto sym_this = SymbolicTensor(*this);
+    sym_this.index_shape(left_contr, left_batch, first_index);
     // for(auto &nnz: other){
     //   std::cout<<"Base tensor keys
     //   "<<nnz.get_coords().to_string()<<std::endl;
@@ -424,7 +435,8 @@ public:
     // std::cout<<"Right contraction "<<right_contr.to_string()<<std::endl;
     // std::cout<<"Right batch "<<right_batch.to_string()<<std::endl;
     hashmap_shape second_index;
-    SymbolicTensor(other).index_shape(right_contr, right_batch, second_index);
+    auto sym_other = SymbolicTensor(other);
+    sym_other.index_shape(right_contr, right_batch, second_index);
     // for(auto &cord: second_index){
     //   std::cout<<"Sym tensor keys "<<cord.first.to_string()<<std::endl;
     // }
@@ -509,8 +521,9 @@ public:
     for (auto &entry : output) {
       output_tensor.get_nonzeros().emplace_back(entry.second, entry.first);
     }
-    output_tensor._infer_dimensionality();
-    output_tensor._infer_shape();
+
+    //output_tensor._infer_dimensionality();
+    //output_tensor._infer_shape();
     return output_tensor;
   }
 
@@ -520,13 +533,17 @@ public:
                    CoOrdinate right_batch) {
     Tensor<DT> result = left.Tensor<L>::template multiply<DT, R>(
         right, left_contr, left_batch, right_contr, right_batch);
+    if (this->get_nonzeros().size() != 0) {
+      delete_old_values();
+    }
     for (auto &nnz : result) {
       auto coords = nnz.get_coords();
       this->get_nonzeros().emplace_back(nnz.get_data(), coords);
     }
+    result.get_nonzeros().clear();
     // std::cout<<"multiplication done"<<std::endl;
-    this->_infer_dimensionality();
-    this->_infer_shape();
+    //this->_infer_dimensionality();
+    //this->_infer_shape();
   }
 
   template <class RIGHT>

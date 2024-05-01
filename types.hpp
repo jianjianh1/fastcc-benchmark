@@ -10,11 +10,11 @@
 class densemat;
 class densevec {
   int size = 0;
-  double *values;
+  double *values=nullptr;
 
 public:
   void clear() { std::memset(values, 0, sizeof(double) * size); }
-  densevec() { values = new double[size]; }
+  densevec() { }
   densevec(std::vector<double> some_data) {
     size = some_data.size();
     values = new double[size];
@@ -81,13 +81,18 @@ densevec operator*(double k, densevec other) { return other * k; }
 
 class densemat {
   int size = 0;
-  double *values;
+  double *values = nullptr;
 
 public:
   void clear() { std::memset(values, 0, sizeof(double) * size * size); }
-  densemat() { values = new double[size * size]; }
+  densemat() { }
+  void free() {
+    if (values != nullptr) {
+      delete[] values;
+      values = nullptr;
+    }
+  }
   double *operator&() { return &values[0]; }
-  void free() { delete[] values; }
   int getsize() { return size; }
   double operator()(int i, int j) {
     assert(i < size && j < size);

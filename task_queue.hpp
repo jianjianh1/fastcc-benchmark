@@ -4,30 +4,29 @@
 class TaskQueue {
   tf::Taskflow taskflow;
   // At the end of the symbolic analysis, this contains the task DAG.
-  // We should put the loop until convergence in this class structure.
-  // The doubles and singles results can be held in this class as well.
-  // We just need to mark the tensors that are updated in each iteration of the
-  // loop.
+  // The doubles and singles results are held in this class as well.
   //
   // tf::Executor executor{1};
   tf::Executor executor;
   int task_id = 0;
   int num_runs = 0;
-  Tensor<densemat> doubles_result = Tensor<densemat>(0);
+  Tensor<densemat> doubles_result = Tensor<densemat>("./T2.tns", true);
 
 public:
+  Tensor<densemat> &getDoubles() { return doubles_result; }
   void run() { executor.run(taskflow).wait(); }
   template <class Res, class L, class R>
-  void addContraction(Tensor<Res> &result, Tensor<L> left, Tensor<R> right,
+  void addContraction(Tensor<Res> &result, Tensor<L> &left, Tensor<R> &right,
                       CoOrdinate left_contr, CoOrdinate left_batch,
                       CoOrdinate right_contr, CoOrdinate right_batch) {
+      std::cout<<"called"<<std::endl;
     // TODO potentially we can make it faster using the Symbolic result, but
     // that's for later.
-    taskflow.emplace([&result, left, right, left_contr, left_batch, right_contr,
+    taskflow.emplace([&result, &left, &right, left_contr, left_batch, right_contr,
                       right_batch]() mutable {
       result.fill_values(left, right, left_contr, left_batch, right_contr,
                          right_batch);
-      std::cout << result.get_nonzeros().size() << std::endl;
+      //std::cout << result.get_nonzeros().size() << std::endl;
     });
   }
   template <class Res, class L, class R>
@@ -53,8 +52,8 @@ public:
                              right_batch);
           // std::cout << "Result is " << result.get_dimensionality() << "D"
           //           << std::endl;
-          std::cout << "Result has " << result.get_nonzeros().size()
-                    << std::endl;
+          //std::cout << "Result has " << result.get_nonzeros().size()
+          //          << std::endl;
         })
         .name(lname + " * " + rname);
   }
@@ -71,10 +70,9 @@ public:
           // this->doubles_result.get_nonzeros().size() << std::endl;
         })
         .name("Update doubles " + std::to_string(task_id));
-    doubles_result += equation_result;
   }
 
-  bool hasConverged() { return num_runs++ > 10; }
+  bool hasConverged() { return num_runs++ > 20; }
 
   void loopUntil() {
 
@@ -82,8 +80,11 @@ public:
     std::ofstream out("full_taskflow.dot");
     out << outp;
     std::cout << "Running taskflow" << std::endl;
+    int iter = 0;
     while (!hasConverged()) {
+
       run();
+      std::cout<<"Iteration "<<iter++<<std::endl;
       // updateDoubles(doubles_result);
     }
   }
