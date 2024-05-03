@@ -155,6 +155,10 @@ template <> Tensor<densemat>::Tensor(std::string filename, bool has_header) {
     nonzeros.emplace_back(mat, base_coords_outer);
     base = bound - 1;
   }
+  if (this->nonzeros.size() > 0) {
+    std::cout << "Size of matrix is "
+              << (this->nonzeros[0]).get_data().getsize() << std::endl;
+  }
   this->_infer_dimensionality();
   this->_infer_shape();
 }
@@ -187,6 +191,7 @@ template <class DT> void Tensor<DT>::write(std::string filename) {
     file << this->shape[i] << " ";
   }
   file << std::endl;
+  file << "NNZs" << std::endl;
   for (auto &nnz : this->nonzeros) {
     file << nnz.get_coords().to_string() << " " << nnz.get_data().to_string()
          << std::endl;

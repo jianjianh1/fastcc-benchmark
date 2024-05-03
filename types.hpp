@@ -58,6 +58,12 @@ public:
     }
     return *this;
   }
+  //double operator+=(double prev){
+  //    for(int i=0; i<size; i++){
+  //        prev += values[i];
+  //    }
+  //    return prev;
+  //}
   double operator*(densevec other) {
     if (size != other.size) {
       std::cerr << "Vector sizes do not match for an inner product"
@@ -118,17 +124,40 @@ public:
     }
     return result;
   }
-  densemat operator+=(densemat other) {
-    if (size != other.size) {
-      std::cerr << "Matrix sizes do not match for an addition. Left is " << size
-                << ", while right is " << other.getsize() << std::endl;
-      exit(1);
-    }
-    for (int i = 0; i < size * size; i++) {
-      values[i] += other(i / size, i % size);
-    }
-    return *this;
+  //double operator+=(double prev) {
+  //  for (int i = 0; i < size * size; i++) {
+  //    prev += values[i];
+  //  }
+  //  return prev;
+  //}
+// In-place eltwise operations
+#define OVERLOAD_OP(OP)                                                        \
+  densemat operator OP(densemat other) {                                      \
+    if (size != other.size) {                                                  \
+      std::cerr << "Matrix sizes do not match for an eltwise op. Left is "     \
+                << size << ", while right is " << other.getsize()              \
+                << std::endl;                                                  \
+      exit(1);                                                                 \
+    }                                                                          \
+    for (int i = 0; i < size * size; i++) {                                    \
+      values[i] OP other(i / size, i % size);                                  \
+    }                                                                          \
+    return *this;                                                              \
   }
+  OVERLOAD_OP(+=)
+  OVERLOAD_OP(-=)
+  OVERLOAD_OP(/=)
+  //densemat operator+=(densemat other) {
+  //  if (size != other.size) {
+  //    std::cerr << "Matrix sizes do not match for an addition. Left is " << size
+  //              << ", while right is " << other.getsize() << std::endl;
+  //    exit(1);
+  //  }
+  //  for (int i = 0; i < size * size; i++) {
+  //    values[i] += other(i / size, i % size);
+  //  }
+  //  return *this;
+  //}
   // Following operators for matrices
   // mat * scalar -> scalar. eltwise
   // scalar * mat -> scalar. eltwise
@@ -194,6 +223,19 @@ densemat densevec::outer(densevec other) {
   }
   densemat result = densemat(res_data);
   return result;
+}
+
+double operator+=(double prev, densevec vec) {
+  for (int i = 0; i < vec.getsize(); i++) {
+    prev += vec(i);
+  }
+  return prev;
+}
+double operator+=(double prev, densemat mat) {
+  for (int i = 0; i < mat.getsize(); i++) {
+    prev += mat(i / mat.getsize(), i % mat.getsize());
+  }
+  return prev;
 }
 
 densemat operator*(double k, densemat other) { return other * k; }

@@ -314,6 +314,13 @@ public:
   iterator begin() { return nonzeros.begin(); }
   iterator end() { return nonzeros.end(); }
   Tensor(std::string fname, bool);
+  double reduce() {
+    double sum = 0;
+    for (auto &nnz : nonzeros) {
+      sum += nnz.get_data();
+    }
+    return sum;
+  }
   void write(std::string fname);
   int get_dimensionality() { return dimensionality; }
   // Constructor for a tensor of given shape and number of non-zeros, fills with
@@ -556,23 +563,28 @@ public:
     return left.count_ops(right, left_contraction, right_contraction);
   }
 
-  void operator+=(Tensor<DT> &other) {
-    hashmap_vals indexed_tensor;
-    for (auto &nnz : nonzeros) {
-      indexed_tensor[nnz.get_coords()] = nnz.get_data();
-    }
-    nonzeros.clear();
-    for (auto &nnz : other) {
-      auto ref = indexed_tensor.find(nnz.get_coords());
-      if (ref != indexed_tensor.end()) {
-        ref->second += nnz.get_data();
-      } else {
-        nonzeros.push_back(nnz);
-      }
-    }
-    for (auto &entry : indexed_tensor) {
-      nonzeros.push_back(NNZ<DT>(entry.second, entry.first));
-    }
+  // In-place eltwise operations
+#define OVERLOAD_OP(OP)                                                        \
+  void operator OP(Tensor<DT> &other) {                                        \
+    hashmap_vals indexed_tensor;                                               \
+    for (auto &nnz : nonzeros) {                                               \
+      indexed_tensor[nnz.get_coords()] = nnz.get_data();                       \
+    }                                                                          \
+    nonzeros.clear();                                                          \
+    for (auto &nnz : other) {                                                  \
+      auto ref = indexed_tensor.find(nnz.get_coords());                        \
+      if (ref != indexed_tensor.end()) {                                       \
+        ref->second OP nnz.get_data();                                         \
+      } else {                                                                 \
+        nonzeros.push_back(nnz);                                               \
+      }                                                                        \
+    }                                                                          \
+    for (auto &entry : indexed_tensor) {                                       \
+      nonzeros.push_back(NNZ<DT>(entry.second, entry.first));                  \
+    }                                                                          \
   }
+  OVERLOAD_OP(+=)
+  OVERLOAD_OP(-=)
+  OVERLOAD_OP(/=)
 };
 #endif

@@ -350,40 +350,18 @@ void fourd_tensor_contraction_numeric() {
 void dlpno_4cint(Tensor<float> teov) {
   auto left_c = CoOrdinate({2});
   auto right_c = CoOrdinate({2});
-  const int PAO = 60;
-  const int MO = 50;
-  const int AUX = 60;
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
-  auto res = teov.multiply<float>(teov, left_c, CoOrdinate({}), right_c, CoOrdinate({}));
+  auto res = teov.multiply<float>(teov, left_c, CoOrdinate({}), right_c,
+                                  CoOrdinate({}));
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
-  std::cout
-      << "Time taken for mult "
-      << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
-      << std::endl;
-  //std::cout << "Count using HT " << num_mults << std::endl;
-  //FlopCounter<float> counter;
-  //for (int b = 0; b < PAO; b++) {
-  //  for (int f = 0; f < PAO; f++) {
-  //    for (int m = 0; m < MO; m++) {
-  //      for (int e = 0; e < PAO; e++) {
-  //        int accum = 0;
-  //        for (int k = 0; k < AUX; k++) {
-  //          int left[3] = {b, f, k};
-  //          int right[3] = {m, e, k};
-  //          auto leftcord = CoOrdinate(3, left);
-  //          auto rightcord = CoOrdinate(3, right);
-  //          float left_val = tevv.get_valat(leftcord);
-  //          float right_val = teov.get_valat(rightcord);
-  //          if (left_val != -1 && right_val != -1)
-  //            accum += counter.mul(left_val, right_val);
-  //        }
-  //      }
-  //    }
-  //  }
-  //}
-  //std::cout << "Count using FlopCounter " << counter.get_mults() << std::endl;
+  auto count_ops = teov.count_ops(teov, left_c, right_c);
+  auto time_taken =
+      std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+  std::cout << "Time taken for mult " << time_taken <<"microsec"<< std::endl;
+  std::cout << "Num ops " << count_ops << std::endl;
+  std::cout << "Intensity " << double(count_ops) / time_taken<<"MFLOP/s" << std::endl;
 }
 
 void fourd_tensor_contraction_shape() {
@@ -553,7 +531,7 @@ void task_queue_loop() {
 }
 
 int main() {
-    task_queue_loop();
-    //Tensor<float> teov("teov.tns", true);
-    //dlpno_4cint(teov);
+//task_queue_loop();
+    Tensor<float> teov("TEov.tns", true);
+    dlpno_4cint(teov);
 }

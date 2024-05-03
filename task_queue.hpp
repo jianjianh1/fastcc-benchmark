@@ -19,14 +19,13 @@ public:
   void addContraction(Tensor<Res> &result, Tensor<L> &left, Tensor<R> &right,
                       CoOrdinate left_contr, CoOrdinate left_batch,
                       CoOrdinate right_contr, CoOrdinate right_batch) {
-      std::cout<<"called"<<std::endl;
     // TODO potentially we can make it faster using the Symbolic result, but
     // that's for later.
-    taskflow.emplace([&result, &left, &right, left_contr, left_batch, right_contr,
-                      right_batch]() mutable {
+    taskflow.emplace([&result, &left, &right, left_contr, left_batch,
+                      right_contr, right_batch]() mutable {
       result.fill_values(left, right, left_contr, left_batch, right_contr,
                          right_batch);
-      //std::cout << result.get_nonzeros().size() << std::endl;
+      // std::cout << result.get_nonzeros().size() << std::endl;
     });
   }
   template <class Res, class L, class R>
@@ -52,7 +51,7 @@ public:
                              right_batch);
           // std::cout << "Result is " << result.get_dimensionality() << "D"
           //           << std::endl;
-          //std::cout << "Result has " << result.get_nonzeros().size()
+          // std::cout << "Result has " << result.get_nonzeros().size()
           //          << std::endl;
         })
         .name(lname + " * " + rname);
@@ -72,8 +71,33 @@ public:
         .name("Update doubles " + std::to_string(task_id));
   }
 
-  bool hasConverged() { return num_runs++ > 20; }
+  double nextGuess() {
+    Tensor<densemat> dr2_residual = doubles_result.multiply<densemat>(
+        doubles_result, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}),
+        CoOrdinate({0, 1}));
+    double doubles_residual = 0.5 * std::sqrt(dr2_residual.reduce());
+    //TODO get the denominator evl tensor from the disk and use that element-wise
+    Tensor<densemat> dr2_denominator = Tensor<densemat>("./T2.tns", true);
+    dr2_residual /= dr2_denominator;
+    doubles_result = dr2_residual;
+    return doubles_residual;
+  }
 
+  //bool hasConverged() {
+  //    auto err = nextGuess();
+  //    if (err < 1e-6) {
+  //      std::cout << "Converged with error " << err << std::endl;
+  //      return true;
+  //    }
+  //    else {
+  //      std::cout << "Not converged with error " << err << std::endl;
+  //      return false;
+  //    }
+  //}
+
+  bool hasConverged() {
+    return num_runs++ > 5;
+  }
   void loopUntil() {
 
     auto outp = taskflow.dump();
@@ -84,7 +108,7 @@ public:
     while (!hasConverged()) {
 
       run();
-      std::cout<<"Iteration "<<iter++<<std::endl;
+      std::cout << "Iteration " << iter++ << std::endl;
       // updateDoubles(doubles_result);
     }
   }
