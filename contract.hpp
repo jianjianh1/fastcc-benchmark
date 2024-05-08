@@ -6,6 +6,7 @@
 #include <iostream>
 #include <random>
 #include <ranges>
+#include <tsl/hopscotch_map.h>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
@@ -150,16 +151,16 @@ public:
 template <class DT> class Tensor;
 class SymbolicTensor {
   std::vector<CoOrdinate> indices;
-  using hashmap_counts = std::unordered_map<CoOrdinate, int>;
+  using hashmap_counts = tsl::hopscotch_map<CoOrdinate, int>;
   using hashmap_shape =
-      std::unordered_map<CoOrdinate,
+      tsl::hopscotch_map<CoOrdinate,
                          std::vector<std::pair<CoOrdinate, CoOrdinate>>>;
   void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
     for (auto &cord : *this) {
       auto filtered_coords = cord.gather(contraction);
       auto ref = indexed_tensor.find(filtered_coords);
       if (ref != indexed_tensor.end()) {
-        ref->second += 1;
+        ref.value() += 1;
       } else {
         indexed_tensor[filtered_coords] = 1;
       }
@@ -186,9 +187,9 @@ public:
                 CoOrdinate right_contraction) {
     assert(left_contraction.get_dimensionality() ==
            right_contraction.get_dimensionality());
-    std::unordered_map<CoOrdinate, int> first_index;
+    hashmap_counts first_index;
     this->index_counts(left_contraction, first_index);
-    std::unordered_map<CoOrdinate, int> second_index;
+    hashmap_counts second_index;
     other.index_counts(right_contraction, second_index);
     int ops = 0;
     for (auto &entry : first_index) {
@@ -209,7 +210,7 @@ public:
       auto external_coords = cord.remove(index_positions);
       auto ref = indexed_tensor.find(index_coords);
       if (ref != indexed_tensor.end()) {
-        ref->second.push_back({batch_coords, external_coords});
+        ref.value().push_back({batch_coords, external_coords});
       } else {
         indexed_tensor[index_coords] = {{batch_coords, external_coords}};
       }
@@ -260,7 +261,7 @@ public:
 };
 template <class DT> class IndexedTensor {
   using hashmap_vals =
-      std::unordered_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
+      tsl::hopscotch_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
 
 public:
   hashmap_vals indexed_tensor;
@@ -269,7 +270,7 @@ public:
     for (auto &nnz : base_tensor) {
       auto it = indexed_tensor.find(nnz.get_coords().gather(index_coords));
       if (it != indexed_tensor.end()) {
-        it->second.push_back(
+        it.value().push_back(
             {nnz.get_coords().remove(index_coords), nnz.get_data()});
       } else {
         indexed_tensor[nnz.get_coords().gather(index_coords)] = {
@@ -280,7 +281,7 @@ public:
   DT get_valat(CoOrdinate index_coords, CoOrdinate remaining_coords) {
     auto it = indexed_tensor.find(index_coords);
     if (it != indexed_tensor.end()) {
-      for (auto &pair : it->second) {
+      for (auto &pair : it.value()) {
         if (pair.first == remaining_coords) {
           return pair.second;
         }
@@ -302,11 +303,11 @@ private:
   std::vector<NNZ<DT>> nonzeros;
   int *shape;
   int dimensionality = 42;
-  using hashmap_counts = std::unordered_map<CoOrdinate, int>;
+  using hashmap_counts = tsl::hopscotch_map<CoOrdinate, int>;
   using hashmap_shape =
-      std::unordered_map<CoOrdinate,
+      tsl::hopscotch_map<CoOrdinate,
                          std::vector<std::pair<CoOrdinate, CoOrdinate>>>;
-  using hashmap_vals = std::unordered_map<CoOrdinate, DT>;
+  using hashmap_vals = tsl::hopscotch_map<CoOrdinate, DT>;
 
 public:
   using iterator = typename std::vector<NNZ<DT>>::iterator;
@@ -574,7 +575,7 @@ public:
     for (auto &nnz : other) {                                                  \
       auto ref = indexed_tensor.find(nnz.get_coords());                        \
       if (ref != indexed_tensor.end()) {                                       \
-        ref->second OP nnz.get_data();                                         \
+        ref.value() OP nnz.get_data();                                         \
       } else {                                                                 \
         nonzeros.push_back(nnz);                                               \
       }                                                                        \
