@@ -391,6 +391,7 @@ public:
     }
   }
   DT get_valat(CoOrdinate coords) {
+      //TODO: merge this with the operator[]
     for (auto &nnz : nonzeros) {
       auto this_coords = nnz.get_coords();
       if (this_coords == coords) {
@@ -587,5 +588,13 @@ public:
   OVERLOAD_OP(+=)
   OVERLOAD_OP(-=)
   OVERLOAD_OP(/=)
+  DT operator[](CoOrdinate cord) {
+    for (auto &nnz : nonzeros) {
+      if (nnz.get_coords() == cord) {
+        return nnz.get_data();
+      }
+    }
+    return DT();
+  }
 };
 #endif
