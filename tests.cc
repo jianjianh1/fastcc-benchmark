@@ -316,7 +316,7 @@ void fourd_tensor_contraction_shape() {
               auto rightcord = CoOrdinate(5, right);
               float left_val = A.get_valat(leftcord);
               float right_val = B.get_valat(rightcord);
-              if (left_val != -1 && right_val != -1)
+              if (left_val != 0 && right_val != 0)
                 ground_truth.insert(CoOrdinate({i, j, k, l}));
             }
           }
