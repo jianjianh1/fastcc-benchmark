@@ -18,7 +18,9 @@ template <typename T> static std::size_t hasharray(int size, T *arr) {
 }
 
 class CoOrdinate {
+#define BITWIDTH (256)
   std::vector<int> coords;
+  std::bitset<BITWIDTH> mybits;
 
 public:
   using iterator = typename std::vector<int>::iterator;
@@ -33,8 +35,18 @@ public:
     for (int i = 0; i < dimensionality; i++) {
       this->coords.push_back(coords[i]);
     }
+    for (auto &cord : this->coords) {
+      mybits <<= sizeof(int);
+      mybits |= std::bitset<BITWIDTH>(cord);
+    }
   }
-  CoOrdinate(std::vector<int> data) { this->coords = data; }
+  CoOrdinate(std::vector<int> data) {
+    this->coords = data;
+    for (auto &cord : this->coords) {
+      mybits <<= sizeof(int);
+      mybits |= std::bitset<BITWIDTH>(cord);
+    }
+  }
   std::string to_string() const;
   void write(std::string filename) const;
 
@@ -42,6 +54,10 @@ public:
   CoOrdinate(CoOrdinate left, CoOrdinate right) {
     coords.insert(coords.end(), left.coords.begin(), left.coords.end());
     coords.insert(coords.end(), right.coords.begin(), right.coords.end());
+    for (auto &cord : this->coords) {
+      mybits <<= sizeof(int);
+      mybits |= std::bitset<BITWIDTH>(cord);
+    }
   }
 
   CoOrdinate gather(CoOrdinate positions) {
@@ -82,18 +98,21 @@ public:
     return removed;
   }
 
+
   int get_index(int dim) const { return coords[dim]; }
   int get_dimensionality() const { return coords.size(); }
   bool operator==(const CoOrdinate &other) const {
-    if (this->get_dimensionality() != other.get_dimensionality()) {
-      return false;
-    }
-    for (int i = 0; i < this->get_dimensionality(); i++) {
-      if (coords[i] != other.coords[i]) {
-        return false;
-      }
-    }
-    return true;
+    return mybits == other.mybits;
+    //if (this->get_dimensionality() != other.get_dimensionality()) {
+    //  return false;
+    //}
+
+    //for (int i = 0; i < this->get_dimensionality(); i++) {
+    //  if (coords[i] != other.coords[i]) {
+    //    return false;
+    //  }
+    //}
+    //return true;
   }
 };
 
@@ -281,6 +300,7 @@ public:
   DT get_valat(CoOrdinate index_coords, CoOrdinate remaining_coords) {
     auto it = indexed_tensor.find(index_coords);
     if (it != indexed_tensor.end()) {
+        //TODO: replace this linear scan with a hash lookup. hotspot here.
       for (auto &pair : it.value()) {
         if (pair.first == remaining_coords) {
           return pair.second;
