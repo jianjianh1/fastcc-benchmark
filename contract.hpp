@@ -98,21 +98,20 @@ public:
     return removed;
   }
 
-
   int get_index(int dim) const { return coords[dim]; }
   int get_dimensionality() const { return coords.size(); }
   bool operator==(const CoOrdinate &other) const {
     return mybits == other.mybits;
-    //if (this->get_dimensionality() != other.get_dimensionality()) {
-    //  return false;
-    //}
+    // if (this->get_dimensionality() != other.get_dimensionality()) {
+    //   return false;
+    // }
 
-    //for (int i = 0; i < this->get_dimensionality(); i++) {
-    //  if (coords[i] != other.coords[i]) {
-    //    return false;
-    //  }
-    //}
-    //return true;
+    // for (int i = 0; i < this->get_dimensionality(); i++) {
+    //   if (coords[i] != other.coords[i]) {
+    //     return false;
+    //   }
+    // }
+    // return true;
   }
 };
 
@@ -165,6 +164,9 @@ public:
   NNZ(DT data, int dimensionality, int *coords)
       : data(data), coords(dimensionality, coords) {}
   NNZ(DT data, CoOrdinate coords) : data(data), coords(coords) {}
+  bool operator==(const NNZ &other) const {
+    return data == other.data && coords == other.coords;
+  }
 };
 
 template <class DT> class Tensor;
@@ -300,7 +302,7 @@ public:
   DT get_valat(CoOrdinate index_coords, CoOrdinate remaining_coords) {
     auto it = indexed_tensor.find(index_coords);
     if (it != indexed_tensor.end()) {
-        //TODO: replace this linear scan with a hash lookup. hotspot here.
+      // TODO: replace this linear scan with a hash lookup. hotspot here.
       for (auto &pair : it.value()) {
         if (pair.first == remaining_coords) {
           return pair.second;
@@ -316,6 +318,30 @@ public:
       }
       exit(1);
     }
+  }
+
+  // This is not exactly an equality operator, it just checks if the other
+  // tensor has every value that this tensor has. Use it with a flip on the two
+  // tensors to get equality operator. I'm lazy and didn't want to write a new
+  // function.
+  bool operator==(const IndexedTensor &other) const {
+    if (indexed_tensor.size() != other.indexed_tensor.size()) {
+      std::cerr << "Size mismatch, left was " << indexed_tensor.size()
+                << ", right was " << other.indexed_tensor.size() << std::endl;
+      return false;
+    }
+    for (auto &entry : indexed_tensor) {
+      auto ref = other.indexed_tensor.find(entry.first);
+      if (ref == other.indexed_tensor.end()) {
+        std::cerr << "Index mismatch" << std::endl;
+        return false;
+      }
+      if (ref.value() != entry.second) {
+        std::cerr << "Value mismatch" << std::endl;
+        return false;
+      }
+    }
+    return true;
   }
 };
 template <class DT> class Tensor {
@@ -394,7 +420,7 @@ public:
     }
   }
   void _infer_shape() {
-      //TODO this is a mem-leak. Add a guard before allocation
+    // TODO this is a mem-leak. Add a guard before allocation
     if (nonzeros.size() > 0) {
       shape = new int[dimensionality];
       for (int i = 0; i < dimensionality; i++) {
@@ -411,7 +437,7 @@ public:
     }
   }
   DT get_valat(CoOrdinate coords) {
-      //TODO: merge this with the operator[]
+    // TODO: merge this with the operator[]
     for (auto &nnz : nonzeros) {
       auto this_coords = nnz.get_coords();
       if (this_coords == coords) {
@@ -551,8 +577,6 @@ public:
       output_tensor.get_nonzeros().emplace_back(entry.second, entry.first);
     }
 
-    //output_tensor._infer_dimensionality();
-    //output_tensor._infer_shape();
     return output_tensor;
   }
 
@@ -570,9 +594,6 @@ public:
       this->get_nonzeros().emplace_back(nnz.get_data(), coords);
     }
     result.get_nonzeros().clear();
-    // std::cout<<"multiplication done"<<std::endl;
-    //this->_infer_dimensionality();
-    //this->_infer_shape();
   }
 
   template <class RIGHT>

@@ -2,7 +2,7 @@
 #include "read.hpp"
 #include "utils.hpp"
 #include <chrono>
-void dense_gemm_opcount() {
+void dense_gemm_count() {
   // C(2, 2) = A(2, 5) * B(5, 2);
   int a_shape[2] = {2, 5};
   int b_shape[2] = {5, 2};
@@ -167,7 +167,7 @@ void sparse_gemm_shape() {
   assert(difference.size() == 0);
 }
 
-void fourd_tensor_contraction() {
+void fourd_tensor_contraction_count() {
   const int NNZ_COUNT = 5000;
   const int NUM_CONTR = 4;
   // I(7, 11, 9, 11) = T0(7, 11, 10, 12, 9) * T1(7, 11, 10, 12, 11);
@@ -342,18 +342,165 @@ void fourd_tensor_contraction_shape() {
   assert(ground_minus_outp.size() == 0);
 }
 
+void dense_multiply() {
+  // I(2, 3, 6, 7) = T0(2, 3, 4, 5, 6) * T1(2, 3, 4, 5, 7);
+  Tensor<float> T0(520);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      for (int k = 0; k < 4; k++) {
+        for (int l = 0; l < 5; l++) {
+          for (int m = 0; m < 6; m++) {
+            float data = i * j * k * l * m;
+            T0.get_nonzeros().push_back(
+                NNZ<float>(data, CoOrdinate({i, j, k, l, m})));
+          }
+        }
+      }
+    }
+  }
+
+  Tensor<float> T1(840);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      for (int k = 0; k < 4; k++) {
+        for (int l = 0; l < 5; l++) {
+          for (int m = 0; m < 7; m++) {
+            float data = i * j * k * l * m;
+            T1.get_nonzeros().push_back(
+                NNZ<float>(data, CoOrdinate({i, j, k, l, m})));
+          }
+        }
+      }
+    }
+  }
+
+  Tensor<float> I =
+      T0.multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
+                         CoOrdinate({2, 3}), CoOrdinate({0, 1}));
+
+  Tensor<float> ground_truth(520);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      for (int m = 0; m < 6; m++) {
+        for (int n = 0; n < 7; n++) {
+          float acc = 0.0;
+          for (int k = 0; k < 4; k++) {
+            for (int l = 0; l < 5; l++) {
+              float left_data = i * j * k * l * m;
+              float right_data = i * j * k * l * n;
+              acc += left_data * right_data;
+            }
+          }
+          int res_coords[4] = {i, j, m, n};
+          ground_truth.get_nonzeros().push_back(NNZ<float>(acc, 4, res_coords));
+        }
+      }
+    }
+  }
+  IndexedTensor<float> ground_truth_indexed(ground_truth,
+                                            CoOrdinate({0, 1, 2, 3}));
+  IndexedTensor<float> i_indexed(I, CoOrdinate({0, 1, 2, 3}));
+  assert(i_indexed == ground_truth_indexed);
+  std::cout << "precision 100%" << std::endl;
+  assert(ground_truth_indexed == i_indexed);
+  std::cout << "recall 100%" << std::endl;
+}
+
+bool one_in_x() {
+#define X 2
+  static uint count;
+  count++;
+  return count % X == 0;
+}
+
+void sparse_multiply() {
+  // I(2, 3, 6, 7) = T0(2, 3, 4, 5, 6) * T1(2, 3, 4, 5, 7);
+  Tensor<float> T0(520);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      for (int k = 0; k < 4; k++) {
+        for (int l = 0; l < 5; l++) {
+          for (int m = 0; m < 6; m++) {
+            if (one_in_x()) {
+              float data = (i * j * k * l * m) + 1.0;
+              T0.get_nonzeros().push_back(
+                  NNZ<float>(data, CoOrdinate({i, j, k, l, m})));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Tensor<float> T1(840);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      for (int k = 0; k < 4; k++) {
+        for (int l = 0; l < 5; l++) {
+          for (int m = 0; m < 7; m++) {
+            if (one_in_x()) {
+              float data = (i * j * k * l * m) + 1.0;
+              T1.get_nonzeros().push_back(
+                  NNZ<float>(data, CoOrdinate({i, j, k, l, m})));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Tensor<float> I =
+      T0.multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
+                         CoOrdinate({2, 3}), CoOrdinate({0, 1}));
+
+  Tensor<float> ground_truth(520);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      for (int m = 0; m < 6; m++) {
+        for (int n = 0; n < 7; n++) {
+          float acc = 0.0;
+          for (int k = 0; k < 4; k++) {
+            for (int l = 0; l < 5; l++) {
+              float left_data = T0[CoOrdinate({i, j, k, l, m})];
+              float right_data = T1[CoOrdinate({i, j, k, l, n})];
+              acc += left_data * right_data;
+            }
+          }
+          if (acc != 0) {
+            int res_coords[4] = {i, j, m, n};
+            ground_truth.get_nonzeros().push_back(
+                NNZ<float>(acc, 4, res_coords));
+          }
+        }
+      }
+    }
+  }
+  assert(ground_truth.reduce() > 0);
+  IndexedTensor<float> ground_truth_indexed(ground_truth,
+                                            CoOrdinate({0, 1, 2, 3}));
+  IndexedTensor<float> i_indexed(I, CoOrdinate({0, 1, 2, 3}));
+  assert(i_indexed == ground_truth_indexed);
+  std::cout << "precision 100%" << std::endl;
+  assert(ground_truth_indexed == i_indexed);
+  std::cout << "recall 100%" << std::endl;
+}
+
 int main() {
-    dense_gemm_opcount();
-    std::cout << "Passed dense_gemm_opcount" << std::endl;
-    dense_gemm_shape();
-    std::cout << "Passed dense_gemm_shape" << std::endl;
-    sparse_gemm_count();
-    std::cout << "Passed sparse_gemm_count" << std::endl;
-    sparse_gemm_shape();
-    std::cout << "Passed sparse_gemm_shape" << std::endl;
-    fourd_tensor_contraction();
-    std::cout << "Passed fourd_tensor_contraction" << std::endl;
-    fourd_tensor_contraction_shape();
-    std::cout << "Passed fourd_tensor_contraction_shape" << std::endl;
-    return 0;
+  dense_gemm_count();
+  std::cout << "Passed dense_gemm_opcount" << std::endl;
+  dense_gemm_shape();
+  std::cout << "Passed dense_gemm_shape" << std::endl;
+  sparse_gemm_count();
+  std::cout << "Passed sparse_gemm_count" << std::endl;
+  sparse_gemm_shape();
+  std::cout << "Passed sparse_gemm_shape" << std::endl;
+  fourd_tensor_contraction_count();
+  std::cout << "Passed fourd_tensor_contraction" << std::endl;
+  fourd_tensor_contraction_shape();
+  std::cout << "Passed fourd_tensor_contraction_shape" << std::endl;
+  dense_multiply();
+  std::cout << "Passed dense_multiply" << std::endl;
+  sparse_multiply();
+  std::cout << "Passed sparse_multiply" << std::endl;
+  return 0;
 }

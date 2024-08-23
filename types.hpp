@@ -58,12 +58,6 @@ public:
     }
     return *this;
   }
-  //double operator+=(double prev){
-  //    for(int i=0; i<size; i++){
-  //        prev += values[i];
-  //    }
-  //    return prev;
-  //}
   double operator*(densevec other) {
     if (size != other.size) {
       std::cerr << "Vector sizes do not match for an inner product"
@@ -82,6 +76,12 @@ public:
   densemat outer(densevec other);
 
   void free() { delete[] values; }
+  bool operator==(densevec other) {
+    if (size != other.size) {
+      return false;
+    }
+    return (std::memcmp(values, other.values, sizeof(double) * size) == 0);
+  }
 };
 densevec operator*(double k, densevec other) { return other * k; }
 
@@ -124,15 +124,16 @@ public:
     }
     return result;
   }
-  //double operator+=(double prev) {
-  //  for (int i = 0; i < size * size; i++) {
-  //    prev += values[i];
-  //  }
-  //  return prev;
-  //}
+  bool operator==(densemat other) {
+    if (size != other.size) {
+      return false;
+    }
+    return (std::memcmp(values, other.values, sizeof(double) * size * size) ==
+            0);
+  }
 // In-place eltwise operations
 #define OVERLOAD_OP(OP)                                                        \
-  densemat operator OP(densemat other) {                                      \
+  densemat operator OP(densemat other) {                                       \
     if (size != other.size) {                                                  \
       std::cerr << "Matrix sizes do not match for an eltwise op. Left is "     \
                 << size << ", while right is " << other.getsize()              \
@@ -147,23 +148,12 @@ public:
   OVERLOAD_OP(+=)
   OVERLOAD_OP(-=)
   OVERLOAD_OP(/=)
-  //densemat operator+=(densemat other) {
-  //  if (size != other.size) {
-  //    std::cerr << "Matrix sizes do not match for an addition. Left is " << size
-  //              << ", while right is " << other.getsize() << std::endl;
-  //    exit(1);
-  //  }
-  //  for (int i = 0; i < size * size; i++) {
-  //    values[i] += other(i / size, i % size);
-  //  }
-  //  return *this;
-  //}
-  // Following operators for matrices
-  // mat * scalar -> scalar. eltwise
-  // scalar * mat -> scalar. eltwise
-  // mat * mat -> mat. gemm
-  // mat * vec -> vec. gemv
-  // vec * mat -> vec. gemv
+  //  Following operators for matrices
+  //  mat * scalar -> scalar. eltwise
+  //  scalar * mat -> scalar. eltwise
+  //  mat * mat -> mat. gemm
+  //  mat * vec -> vec. gemv
+  //  vec * mat -> vec. gemv
   //
   densemat operator*(double scalar) {
     std::vector<double> res_data;
