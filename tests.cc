@@ -314,8 +314,8 @@ void fourd_tensor_contraction_shape() {
               int right[5] = {i, j, m, n, l};
               auto leftcord = CoOrdinate(5, left);
               auto rightcord = CoOrdinate(5, right);
-              float left_val = A.get_valat(leftcord);
-              float right_val = B.get_valat(rightcord);
+              float left_val = A[leftcord];
+              float right_val = B[rightcord];
               if (left_val != 0 && right_val != 0)
                 ground_truth.insert(CoOrdinate({i, j, k, l}));
             }
