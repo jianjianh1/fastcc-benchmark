@@ -104,6 +104,7 @@ void dlpno_4cint(Tensor<float> teov) {
   std::cout << "Intensity " << double(count_ops) / time_taken<<"MFLOP/s" << std::endl;
 }
 
+
 void dlpno_bottleneck(Tensor<double> tevv, Tensor<double> t2_d_lmop) {
     //"TEvv_d_LMOP_T2_d_LMOP [b_mu, K, i, j, e_mu] = TEvv [b_mu, f_mu, K] * d_LMOP_T2_d_LMOP [i, j, e_mu, f_mu]";
     // contraction f_mu
@@ -122,6 +123,23 @@ void dlpno_bottleneck(Tensor<double> tevv, Tensor<double> t2_d_lmop) {
   std::cout << "Time taken for mult " << time_taken <<"microsec"<< std::endl;
   std::cout << "Num ops " << count_ops << std::endl;
   std::cout << "Intensity " << double(count_ops) / time_taken<<"MFLOP/s" << std::endl;
+}
+
+void dlpno_bottleneck2(Tensor<double> tevv, Tensor<double> d_lmop) {
+    //"TEvv_d_LMOP [b_mu, K, i, j, f_ij] = TEvv [b_mu, f_mu, K] * d_LMOP [i, j, f_mu, f_ij]";
+    // contraction f_mu
+    // batch, none
+  auto left_c = CoOrdinate({1});
+  auto right_c = CoOrdinate({2});
+  std::chrono::high_resolution_clock::time_point t1 =
+      std::chrono::high_resolution_clock::now();
+  auto res = tevv.multiply<float>(d_lmop, left_c, CoOrdinate({}), right_c,
+                                  CoOrdinate({}));
+  std::chrono::high_resolution_clock::time_point t2 =
+      std::chrono::high_resolution_clock::now();
+  auto time_taken =
+      std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+  std::cout << "Time taken for mult " << time_taken <<"microsec"<< std::endl;
 }
 
 void sparse_gemm(Tensor<float> some) {
@@ -197,7 +215,10 @@ void task_queue_loop() {
 
 int main() {
 //task_queue_loop();
+    //Tensor<double> tevv("TEvv.tns", true);
+    //Tensor<double> d_LMOP_T2_d_LMOP("T2_d_LMOP.tns", true);
+    //dlpno_bottleneck(tevv, d_LMOP_T2_d_LMOP);
     Tensor<double> tevv("TEvv.tns", true);
-    Tensor<double> d_LMOP_T2_d_LMOP("T2_d_LMOP.tns", true);
-    dlpno_bottleneck(tevv, d_LMOP_T2_d_LMOP);
+    Tensor<double> d_LMOP("d_LMOP.tns", true);
+    dlpno_bottleneck2(tevv, d_LMOP);
 }
