@@ -281,8 +281,9 @@ public:
   }
 };
 template <class DT> class IndexedTensor {
-  using hashmap_vals =
-      tsl::hopscotch_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
+  //using hashmap_vals =
+  //    tsl::hopscotch_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
+  using hashmap_vals = tsl::hopscotch_map<CoOrdinate, tsl::hopscotch_map<CoOrdinate, DT>>;
 
 public:
   hashmap_vals indexed_tensor;
@@ -291,22 +292,21 @@ public:
     for (auto &nnz : base_tensor) {
       auto it = indexed_tensor.find(nnz.get_coords().gather(index_coords));
       if (it != indexed_tensor.end()) {
-        it.value().push_back(
-            {nnz.get_coords().remove(index_coords), nnz.get_data()});
+        tsl::hopscotch_map<CoOrdinate, DT> &inner_map = it.value();
+        inner_map[nnz.get_coords().remove(index_coords)] = nnz.get_data();
+
       } else {
-        indexed_tensor[nnz.get_coords().gather(index_coords)] = {
-            {nnz.get_coords().remove(index_coords), nnz.get_data()}};
+        indexed_tensor[nnz.get_coords().gather(index_coords)] = {{nnz.get_coords().remove(index_coords), nnz.get_data()}};
       }
     }
   }
   DT get_valat(CoOrdinate index_coords, CoOrdinate remaining_coords) {
     auto it = indexed_tensor.find(index_coords);
     if (it != indexed_tensor.end()) {
-      // TODO: replace this linear scan with a hash lookup. hotspot here.
-      for (auto &pair : it.value()) {
-        if (pair.first == remaining_coords) {
-          return pair.second;
-        }
+        tsl::hopscotch_map<CoOrdinate, DT> inner_map = it->second;
+        auto inner_val = inner_map.find(remaining_coords);
+      if(inner_val != inner_map.end()){
+        return inner_val.value();
       }
       std::cerr << "Found outer cord, can't find inner coordinate" << std::endl;
       exit(1);
