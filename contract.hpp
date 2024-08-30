@@ -100,6 +100,7 @@ public:
 
   int get_index(int dim) const { return coords[dim]; }
   int get_dimensionality() const { return coords.size(); }
+  std::bitset<BITWIDTH> get_bits() const { return mybits; }
   bool operator==(const CoOrdinate &other) const {
     return mybits == other.mybits;
     // if (this->get_dimensionality() != other.get_dimensionality()) {
@@ -117,12 +118,13 @@ public:
 
 template <> struct std::hash<CoOrdinate> {
   std::size_t operator()(const CoOrdinate &c) const {
-    std::string catted_cord = "";
-    for (auto &&coord : c) {
-      catted_cord += std::to_string(coord);
-      catted_cord += ",";
-    }
-    return std::hash<std::string>{}(catted_cord);
+    //std::string catted_cord = "";
+    //for (auto &&coord : c) {
+    //  catted_cord += std::to_string(coord);
+    //  catted_cord += ",";
+    //}
+    //return std::hash<std::string>{}(catted_cord);
+    return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits().to_ullong());
   }
 };
 
@@ -303,7 +305,7 @@ public:
   DT get_valat(CoOrdinate index_coords, CoOrdinate remaining_coords) {
     auto it = indexed_tensor.find(index_coords);
     if (it != indexed_tensor.end()) {
-        tsl::hopscotch_map<CoOrdinate, DT> inner_map = it->second;
+        tsl::hopscotch_map<CoOrdinate, DT>const & inner_map = it->second;
         auto inner_val = inner_map.find(remaining_coords);
       if(inner_val != inner_map.end()){
         return inner_val.value();
