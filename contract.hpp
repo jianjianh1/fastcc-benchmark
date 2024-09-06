@@ -118,13 +118,13 @@ public:
 
 template <> struct std::hash<CoOrdinate> {
   std::size_t operator()(const CoOrdinate &c) const {
-    //std::string catted_cord = "";
-    //for (auto &&coord : c) {
-    //  catted_cord += std::to_string(coord);
-    //  catted_cord += ",";
-    //}
-    //return std::hash<std::string>{}(catted_cord);
-    return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits().to_ullong());
+    std::string catted_cord = "";
+    for (auto &&coord : c) {
+      catted_cord += std::to_string(coord);
+      catted_cord += ",";
+    }
+    return std::hash<std::string>{}(catted_cord);
+    //return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits().to_ullong());
   }
 };
 
