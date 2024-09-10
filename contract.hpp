@@ -60,7 +60,7 @@ public:
     }
   }
 
-  CoOrdinate gather(CoOrdinate positions) {
+  CoOrdinate gather(CoOrdinate positions) const{
     // TODO remove before flight
     if (positions.get_dimensionality() > this->get_dimensionality()) {
       std::cout << "Error, trying to gather more dimensions than there are in "
@@ -283,9 +283,8 @@ public:
   }
 };
 template <class DT> class IndexedTensor {
-  //using hashmap_vals =
-  //    tsl::hopscotch_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
-  using hashmap_vals = tsl::hopscotch_map<CoOrdinate, tsl::hopscotch_map<CoOrdinate, DT>>;
+  using hashmap_vals =
+      tsl::hopscotch_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
 
 public:
   hashmap_vals indexed_tensor;
@@ -294,21 +293,21 @@ public:
     for (auto &nnz : base_tensor) {
       auto it = indexed_tensor.find(nnz.get_coords().gather(index_coords));
       if (it != indexed_tensor.end()) {
-        tsl::hopscotch_map<CoOrdinate, DT> &inner_map = it.value();
-        inner_map[nnz.get_coords().remove(index_coords)] = nnz.get_data();
-
+        it.value().push_back(
+            {nnz.get_coords().remove(index_coords), nnz.get_data()});
       } else {
-        indexed_tensor[nnz.get_coords().gather(index_coords)] = {{nnz.get_coords().remove(index_coords), nnz.get_data()}};
+        indexed_tensor[nnz.get_coords().gather(index_coords)] = {
+            {nnz.get_coords().remove(index_coords), nnz.get_data()}};
       }
     }
   }
   DT get_valat(CoOrdinate index_coords, CoOrdinate remaining_coords) {
     auto it = indexed_tensor.find(index_coords);
     if (it != indexed_tensor.end()) {
-        tsl::hopscotch_map<CoOrdinate, DT>const & inner_map = it->second;
-        auto inner_val = inner_map.find(remaining_coords);
-      if(inner_val != inner_map.end()){
-        return inner_val.value();
+      for (auto &pair : it.value()) {
+        if (pair.first == remaining_coords) {
+          return pair.second;
+        }
       }
       std::cerr << "Found outer cord, can't find inner coordinate" << std::endl;
       exit(1);
@@ -383,11 +382,12 @@ public:
     }
   }
   void delete_old_values() {
-    if constexpr (std::is_class<DT>::value) {
-      for (auto &nnz : nonzeros) {
-        nnz.get_data().free();
-      }
-    }
+      //TODO: might be a leak....but need to replace with smart pointers maybe.
+    //if constexpr (std::is_class<DT>::value) {
+    //  for (auto &nnz : nonzeros) {
+    //    nnz.get_data().free();
+    //  }
+    //}
     nonzeros.clear();
   }
   // Make a tensor with just ones at given positions
@@ -476,126 +476,118 @@ public:
   Tensor<RES> multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
                        CoOrdinate left_batch, CoOrdinate right_contr,
                        CoOrdinate right_batch) {
-    // Store the output as a hashmap of coordinates to values
-    // Co-iterate over the left and right op just like we did for op-counting,
-    // just add and update the value if it exists. We need a way to get a
-    // default value from the abstract datatype. We also need to write functions
-    // to accumulate (+=) in-place with another object of the same abstract
-    // type.
-    hashmap_shape first_index;
-    auto sym_this = SymbolicTensor(*this);
-    sym_this.index_shape(left_contr, left_batch, first_index);
-    // for(auto &nnz: other){
-    //   std::cout<<"Base tensor keys
-    //   "<<nnz.get_coords().to_string()<<std::endl;
-    // }
-    // std::cout<<"Right contraction "<<right_contr.to_string()<<std::endl;
-    // std::cout<<"Right batch "<<right_batch.to_string()<<std::endl;
-    hashmap_shape second_index;
-    auto sym_other = SymbolicTensor(other);
-    sym_other.index_shape(right_contr, right_batch, second_index);
-    // for(auto &cord: second_index){
-    //   std::cout<<"Sym tensor keys "<<cord.first.to_string()<<std::endl;
-    // }
-    auto left_indcords = CoOrdinate(left_batch, left_contr);
-    IndexedTensor<DT> this_indexed(*this, left_indcords);
-    auto right_indcords = CoOrdinate(right_batch, right_contr);
-    IndexedTensor<RIGHT> other_indexed(other, right_indcords);
-    // for(auto &cord: other_indexed.indexed_tensor){
-    //   std::cout<<"IndexedTensor keys "<<cord.first.to_string()<<std::endl;
-    // }
-    std::unordered_map<CoOrdinate, RES> output;
-    // std::cout<<"Starting to form output hashmap, gonna coiterate"<<std::endl;
-    //  Join on the keys of the map, cartesian product of the values.
-    for (auto &entry : first_index) {
-      auto ref = second_index.find(entry.first);
-      if (ref != second_index.end() && second_index.size() > 0) {
-        // std::cout<<"Found a match "<<entry.first.to_string()<<std::endl;
-        for (auto &leftcord : entry.second) {
-          for (auto &rightcord : ref->second) {
-            CoOrdinate batch_coords = leftcord.first;
-            CoOrdinate external_coords =
-                CoOrdinate(leftcord.second, rightcord.second);
+    CoOrdinate left_idx_pos = CoOrdinate(left_batch, left_contr);
+    IndexedTensor<DT> left_indexed = IndexedTensor<DT>(*this, left_idx_pos);
+    CoOrdinate right_idx_pos = CoOrdinate(right_batch, right_contr);
+    IndexedTensor<RIGHT> right_indexed =
+        IndexedTensor<RIGHT>(other, right_idx_pos);
+
+    tsl::hopscotch_map<CoOrdinate, RES> result;
+
+    std::vector<int> batch_pos_afterhash(left_batch.get_dimensionality());
+    std::iota(batch_pos_afterhash.begin(), batch_pos_afterhash.end(), 0);
+    CoOrdinate idx_batch_pos = CoOrdinate(batch_pos_afterhash);
+
+    for (auto &left_entry : left_indexed.indexed_tensor) {
+      auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
+      if (right_entry != right_indexed.indexed_tensor.end()) {
+        for (auto &left_ev :
+             left_entry.second) { // loop over (e_l, nnz_l): external left, nnz
+                                  // at that external left.
+          for (auto &right_ev : right_entry->second) {
+            CoOrdinate batch_coords = left_entry.first.gather(
+                batch_pos_afterhash); // assumes that batch positions are leftmost, so
+                             // they will work with a left subset.
+            CoOrdinate external_coords = CoOrdinate(
+                left_ev.first,
+                right_ev.first); // convention to put left followed by right
             CoOrdinate output_coords =
                 CoOrdinate(batch_coords, external_coords);
-            auto ref = output.find(output_coords);
-            if (ref != output.end() && output.size() > 0) {
-              // This is a weird behaviour where if the hashmap is empty, we get
-              // a dangling iterator that causes a segfault.
-              RES outp;
-              if constexpr (std::is_same<DT, densevec>() &&
-                            std::is_same<RIGHT, densevec>() &&
-                            std::is_same<RES, densemat>()) {
-                outp = this_indexed.get_valat(entry.first, leftcord.second)
-                           .densevec::outer(other_indexed.get_valat(
-                               entry.first, rightcord.second));
-              } else {
-                outp = this_indexed.get_valat(entry.first, leftcord.second) *
-                       other_indexed.get_valat(entry.first, rightcord.second);
-              }
-              ref->second += outp;
+            RES outp;
+            if constexpr (std::is_same<DT, densevec>() &&
+                          std::is_same<RIGHT, densevec>() &&
+                          std::is_same<RES, densemat>()) {
+              outp = left_ev.second.densevec::outer(right_ev.second);
             } else {
-
-              // if constexpr (std::is_class<DT>::value) {
-              //   std::cout << "Left vector "
-              //             << this->get_valat(leftcord.first).to_string()
-              //             << std::endl;
-              // } else {
-              //   std::cout << "Left vector " <<
-              //   this->get_valat(rightcord.first)
-              //             << std::endl;
-              // }
-              // if constexpr (std::is_class<RIGHT>::value) {
-              //   std::cout << "Right vector "
-              //             << other.get_valat(leftcord.first).to_string()
-              //             << std::endl;
-              // } else {
-              //   std::cout << "Right vector " <<
-              //   other.get_valat(rightcord.first)
-              //             << std::endl;
-              // }
-              RES outp;
-              if constexpr (std::is_same<DT, densevec>() &&
-                            std::is_same<RIGHT, densevec>() &&
-                            std::is_same<RES, densemat>()) {
-                outp = this_indexed.get_valat(entry.first, leftcord.second)
-                           .densevec::outer(other_indexed.get_valat(
-                               entry.first, rightcord.second));
-              } else {
-                auto lop = this_indexed.get_valat(entry.first, leftcord.second);
-                auto rop =
-                    other_indexed.get_valat(entry.first, rightcord.second);
-                outp = lop * rop;
-              }
-              output[output_coords] = outp;
+              outp = left_ev.second * right_ev.second;
+            }
+            auto result_ref = result.find(output_coords);
+            if (result_ref != result.end()) {
+              result_ref.value() += outp;
+            } else {
+              result[output_coords] = outp;
             }
           }
         }
       }
     }
-    // std::cout<<"Output hashmap formed"<<std::endl;
-    Tensor<RES> output_tensor(output.size());
-    for (auto &entry : output) {
-      output_tensor.get_nonzeros().emplace_back(entry.second, entry.first);
-    }
+    Tensor<RES> result_tensor(result.size());
 
-    return output_tensor;
+    for (auto nnz : result) {
+      result_tensor.get_nonzeros().push_back(NNZ<RES>(nnz.second, nnz.first));
+    }
+    return result_tensor;
   }
 
   template <class L, class R>
   void fill_values(Tensor<L> &left, Tensor<R> &right, CoOrdinate left_contr,
                    CoOrdinate left_batch, CoOrdinate right_contr,
                    CoOrdinate right_batch) {
-    Tensor<DT> result = left.Tensor<L>::template multiply<DT, R>(
-        right, left_contr, left_batch, right_contr, right_batch);
+      //TODO: refactor this above
+    CoOrdinate left_idx_pos = CoOrdinate(left_batch, left_contr);
+    IndexedTensor<L> left_indexed = IndexedTensor<L>(left, left_idx_pos);
+    CoOrdinate right_idx_pos = CoOrdinate(right_batch, right_contr);
+    IndexedTensor<R> right_indexed =
+        IndexedTensor<R>(right, right_idx_pos);
+
+    tsl::hopscotch_map<CoOrdinate, DT> result;
+
+    std::vector<int> batch_pos_afterhash(left_batch.get_dimensionality());
+    std::iota(batch_pos_afterhash.begin(), batch_pos_afterhash.end(), 0);
+    CoOrdinate idx_batch_pos = CoOrdinate(batch_pos_afterhash);
+
+    for (auto &left_entry : left_indexed.indexed_tensor) {
+      auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
+      if (right_entry != right_indexed.indexed_tensor.end()) {
+        for (auto &left_ev :
+             left_entry.second) { // loop over (e_l, nnz_l): external left, nnz
+                                  // at that external left.
+          for (auto &right_ev : right_entry->second) {
+            CoOrdinate batch_coords = left_entry.first.gather(
+                batch_pos_afterhash); // assumes that batch positions are leftmost, so
+                             // they will work with a left subset.
+            CoOrdinate external_coords = CoOrdinate(
+                left_ev.first,
+                right_ev.first); // convention to put left followed by right
+            CoOrdinate output_coords =
+                CoOrdinate(batch_coords, external_coords);
+            DT outp;
+            if constexpr (std::is_same<L, densevec>() &&
+                          std::is_same<R, densevec>() &&
+                          std::is_same<DT, densemat>()) {
+              outp = left_ev.second.densevec::outer(right_ev.second);
+            } else {
+              outp = left_ev.second * right_ev.second;
+            }
+            auto result_ref = result.find(output_coords);
+            if (result_ref != result.end()) {
+              result_ref.value() += outp;
+            } else {
+              result[output_coords] = outp;
+            }
+          }
+        }
+      }
+    }
+
     if (this->get_nonzeros().size() != 0) {
-      delete_old_values();
+      this->delete_old_values();
     }
     for (auto &nnz : result) {
-      auto coords = nnz.get_coords();
-      this->get_nonzeros().emplace_back(nnz.get_data(), coords);
+      this->get_nonzeros().push_back(NNZ<DT>(nnz.second, nnz.first));
     }
-    result.get_nonzeros().clear();
+    assert(this->get_size() == result.size());
+    result.clear();
   }
 
   template <class RIGHT>
@@ -609,14 +601,15 @@ public:
   }
 
   // In-place eltwise operations
+  // For sparse tensors, the += can in-fact increase non-zeros.
 #define OVERLOAD_OP(OP)                                                        \
-  void operator OP(Tensor<DT> &other) {                                        \
+  void operator OP(Tensor<DT> *other) {                                        \
     hashmap_vals indexed_tensor;                                               \
     for (auto &nnz : nonzeros) {                                               \
       indexed_tensor[nnz.get_coords()] = nnz.get_data();                       \
     }                                                                          \
     nonzeros.clear();                                                          \
-    for (auto &nnz : other) {                                                  \
+    for (auto &nnz : (*other)) {                                                  \
       auto ref = indexed_tensor.find(nnz.get_coords());                        \
       if (ref != indexed_tensor.end()) {                                       \
         ref.value() OP nnz.get_data();                                         \
@@ -628,7 +621,24 @@ public:
       nonzeros.push_back(NNZ<DT>(entry.second, entry.first));                  \
     }                                                                          \
   }
-  OVERLOAD_OP(+=)
+  void operator+=(Tensor<DT> *other) {
+    hashmap_vals indexed_tensor;
+    for (auto &nnz : nonzeros) {
+      indexed_tensor[nnz.get_coords()] = nnz.get_data();
+    }
+    nonzeros.clear();
+    for (auto &nnz : other->get_nonzeros()) {
+      auto ref = indexed_tensor.find(nnz.get_coords());
+      if (ref != indexed_tensor.end()) {
+        ref.value() += nnz.get_data();
+      } else {
+        nonzeros.push_back(nnz);
+      }
+    }
+    for (auto &entry : indexed_tensor) {
+      nonzeros.push_back(NNZ<DT>(entry.second, entry.first));
+    }
+  }
   OVERLOAD_OP(-=)
   OVERLOAD_OP(/=)
   DT operator[](CoOrdinate cord) {
