@@ -6,7 +6,7 @@ invoke.run(
     "-o libspcnt.so "
 )
 #invoke.run(
-#    "g++ -I/home/saurabh/taskflow -I/home/saurabh/hopscotch-map/include -g -shared -std=c++2a -fPIC driver.cc "
+#    "g++ -I/home/saurabh/taskflow -I/home/saurabh/hopscotch-map/include -g -fsanitize=address -shared -std=c++2a -fPIC driver.cc "
 #    "-o libspcnt.so "
 #)
 invoke.run(
@@ -19,7 +19,7 @@ invoke.run(
 )
 
 #invoke.run(
-#    "g++ -g -shared -std=c++2a -fPIC "
+#    "g++ -g -shared -std=c++2a -fPIC -fsanitize=address "
 #    "`python3 -m pybind11 --includes` "
 #    "-I /usr/include/python3.7 -I . -I/home/saurabh/taskflow -I/home/saurabh/hopscotch-map/include "
 #    "pybind_wrapper.cpp "

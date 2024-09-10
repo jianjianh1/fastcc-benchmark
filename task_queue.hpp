@@ -29,7 +29,7 @@ public:
     });
   }
   template <class Res, class L, class R>
-  tf::Task makeTask(Tensor<Res> &result, Tensor<L> &left, Tensor<R> &right,
+  tf::Task makeTask(Tensor<Res> *result, Tensor<L> &left, Tensor<R> &right,
                     CoOrdinate left_contr, CoOrdinate left_batch,
                     CoOrdinate right_contr, CoOrdinate right_batch,
                     std::string lname, std::string rname) {
@@ -39,36 +39,22 @@ public:
     // std::endl;
     auto task_id = this->task_id++;
     return taskflow
-        .emplace([&result, &left, &right, left_contr, left_batch, right_contr,
+        .emplace([result, &left, &right, left_contr, left_batch, right_contr,
                   right_batch, task_id, lname, rname]() mutable {
-          // std::cout << "Task " << task_id << " started" << std::endl;
-          // std::cout << "Left " << lname << " has " <<
-          // left.get_nonzeros().size()
-          //           << std::endl;
-          // std::cout << "Right " << rname << " has "
-          //           << right.get_nonzeros().size() << std::endl;
-          result.fill_values(left, right, left_contr, left_batch, right_contr,
-                             right_batch);
-          // std::cout << "Result is " << result.get_dimensionality() << "D"
-          //           << std::endl;
-          // std::cout << "Result has " << result.get_nonzeros().size()
-          //          << std::endl;
+          result->fill_values(left, right, left_contr, left_batch, right_contr,
+                              right_batch);
         })
         .name(lname + " * " + rname);
   }
 
-  tf::Task updateDoubles(Tensor<densemat> &equation_result) {
+  tf::Task updateDoubles(Tensor<densemat> *equation_result,
+                         std::string tensor_name = "") {
     auto task_id = this->task_id++;
     return taskflow
-        .emplace([&equation_result, task_id, this]() mutable {
-          // std::cout << "Task " << task_id << " started" << std::endl;
-          // std::cout << "Equation result has " <<
-          // equation_result.get_nonzeros().size() << std::endl;
+        .emplace([equation_result, task_id, this]() mutable {
           this->doubles_result += equation_result;
-          // std::cout << "Doubles result has " <<
-          // this->doubles_result.get_nonzeros().size() << std::endl;
         })
-        .name("Update doubles " + std::to_string(task_id));
+        .name("Update doubles " + std::to_string(task_id) + "_" + tensor_name);
   }
 
   double nextGuess() {
@@ -78,7 +64,7 @@ public:
     double doubles_residual = 0.5 * std::sqrt(dr2_residual.reduce());
     //TODO get the denominator evl tensor from the disk and use that element-wise
     Tensor<densemat> dr2_denominator = Tensor<densemat>("./T2.tns", true);
-    dr2_residual /= dr2_denominator;
+    dr2_residual /= &dr2_denominator;
     doubles_result = dr2_residual;
     return doubles_residual;
   }

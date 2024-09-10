@@ -113,7 +113,7 @@ void dlpno_bottleneck(Tensor<double> tevv, Tensor<double> t2_d_lmop) {
   auto right_c = CoOrdinate({3});
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
-  auto res = tevv.multiply<float>(t2_d_lmop, left_c, CoOrdinate({}), right_c,
+  auto res = tevv.multiply<double>(t2_d_lmop, left_c, CoOrdinate({}), right_c,
                                   CoOrdinate({}));
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
@@ -125,7 +125,7 @@ void dlpno_bottleneck(Tensor<double> tevv, Tensor<double> t2_d_lmop) {
   std::cout << "Intensity " << double(count_ops) / time_taken<<"MFLOP/s" << std::endl;
 }
 
-void dlpno_bottleneck2(Tensor<double> tevv, Tensor<double> d_lmop) {
+void dlpno_bottleneck2(Tensor<double> tevv, Tensor<densevec> d_lmop) {
     //"TEvv_d_LMOP [b_mu, K, i, j, f_ij] = TEvv [b_mu, f_mu, K] * d_LMOP [i, j, f_mu, f_ij]";
     // contraction f_mu
     // batch, none
@@ -133,7 +133,7 @@ void dlpno_bottleneck2(Tensor<double> tevv, Tensor<double> d_lmop) {
   auto right_c = CoOrdinate({2});
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
-  auto res = tevv.multiply<float>(d_lmop, left_c, CoOrdinate({}), right_c,
+  auto res = tevv.multiply<densevec>(d_lmop, left_c, CoOrdinate({}), right_c,
                                   CoOrdinate({}));
   std::chrono::high_resolution_clock::time_point t2 =
       std::chrono::high_resolution_clock::now();
@@ -186,39 +186,81 @@ void t1_pno_vecinner() {
 void task_queue() {
   TaskQueue tq;
   Tensor<densemat> t2("T2.tns", true);
-  Tensor<densemat> res(t2.get_size());
-  tq.addContraction(res, t2, t2, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}),
-                    CoOrdinate({0, 1}));
-  tq.run();
-  res.write("T2_out.tns");
-  Tensor<densemat> res_vanilla = t2.multiply<densemat, densemat>(
-      t2, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}), CoOrdinate({0, 1}));
+
+  Tensor<densemat> res_vanilla =
+      t2.multiply<densemat, densemat>(t2, CoOrdinate({}), CoOrdinate({0, 1}),
+                                      CoOrdinate({}), CoOrdinate({0, 1}));
+  res_vanilla._infer_dimensionality();
+  res_vanilla._infer_shape();
   res_vanilla.write("T2_out_vanilla.tns");
+
+  std::cout << "Wrote the ground truth" << std::endl;
+
+  Tensor<densemat> res(t2.get_size());
+  tq.addContraction(res, t2, t2, CoOrdinate({}), CoOrdinate({0, 1}),
+                    CoOrdinate({}), CoOrdinate({0, 1}));
+  tq.run();
+  res._infer_dimensionality();
+  res._infer_shape();
+  res.write("T2_out.tns");
+  // diff the two files on disk, should be equal
+}
+
+void teov_dlmop_opcount(Tensor<double> dteov, Tensor<densevec> dlmop){
+    // [j, K, i, b_ij] = (TEov[[j, b_mu, K]] * d_LMOP[[i, j, b_mu, b_ij]]) @ 88242
+    auto left_c = CoOrdinate(std::vector<int>({0, 1})); //batch,contraction
+    //auto left_c = CoOrdinate(std::vector<int>({1, 0})); //contraction,batch
+    auto right_c = CoOrdinate(std::vector<int>({1, 2})); //batch,contraction
+    //auto right_c = CoOrdinate(std::vector<int>({2, 1})); //contraction,batch
+    auto count_ops = dteov.count_ops(dlmop, left_c, right_c);
+    std::cout << "Num ops " << count_ops << std::endl;
+}
+
+void teov_dlmop_multiply(Tensor<double> dteov, Tensor<densevec> dlmop){
+    // [j, K, i, b_ij] = (TEov[[j, b_mu, K]] * d_LMOP[[i, j, b_mu, b_ij]]) @ 88242
+    auto left_c = CoOrdinate(std::vector<int>({0, 1})); //batch,contraction
+    //auto left_c = CoOrdinate(std::vector<int>({1, 0})); //contraction,batch
+    auto right_c = CoOrdinate(std::vector<int>({1, 2})); //batch,contraction
+    //auto right_c = CoOrdinate(std::vector<int>({2, 1})); //contraction,batch
+    auto count_ops = dteov.count_ops(dlmop, left_c, right_c);
+    std::cout << "Num ops " << count_ops << std::endl;
 }
 
 void task_queue_loop() {
-    //check for mem leak
-  TaskQueue tq;
-  Tensor<densemat> t2("T2.tns", true);
-  Tensor<densemat> res(t2.get_size());
-  tq.addContraction(res, t2, t2, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}),
-                    CoOrdinate({0, 1}));
-  tq.updateDoubles(res);
-  tq.loopUntil();
-  t2.delete_old_values();
-  res.delete_old_values();
-  //res.write("T2_out.tns");
-  //Tensor<densemat> res_vanilla = t2.multiply<densemat, densemat>(
-  //    t2, CoOrdinate({}), CoOrdinate({0, 1}), CoOrdinate({}), CoOrdinate({0, 1}));
-  //res_vanilla.write("T2_out_vanilla.tns");
+    // check for mem leak
+    TaskQueue tq;
+    Tensor<densemat> t2("T2.tns", true);
+    Tensor<densemat> res_vanilla =
+        t2.multiply<densemat, densemat>(t2, CoOrdinate({}), CoOrdinate({0, 1}),
+                                        CoOrdinate({}), CoOrdinate({0, 1}));
+    res_vanilla._infer_dimensionality();
+    res_vanilla._infer_shape();
+    res_vanilla.write("T2_out_vanilla.tns");
+    std::cout << "wrote ground truth" << std::endl;
+    Tensor<densemat> res(t2.get_size());
+    tq.addContraction(res, t2, t2, CoOrdinate({}), CoOrdinate({0, 1}),
+                      CoOrdinate({}), CoOrdinate({0, 1}));
+    tq.updateDoubles(&res);
+    tq.loopUntil();
+    t2.delete_old_values();
+    res.delete_old_values();
+
+    Tensor<densemat> tq_result = tq.getDoubles();
+    tq_result._infer_dimensionality();
+    tq_result._infer_shape();
+    tq_result.write("T2_out.tns");
+
+
+    // diff the two files on disk, should be equal
 }
 
 int main() {
-//task_queue_loop();
-    //Tensor<double> tevv("TEvv.tns", true);
-    //Tensor<double> d_LMOP_T2_d_LMOP("T2_d_LMOP.tns", true);
-    //dlpno_bottleneck(tevv, d_LMOP_T2_d_LMOP);
-    Tensor<double> tevv("TEvv.tns", true);
-    Tensor<double> d_LMOP("d_LMOP.tns", true);
-    dlpno_bottleneck2(tevv, d_LMOP);
+    //task_queue();
+    task_queue_loop();
+    // Tensor<double> tevv("TEvv.tns", true);
+    // Tensor<double> d_LMOP_T2_d_LMOP("T2_d_LMOP.tns", true);
+    // dlpno_bottleneck(tevv, d_LMOP_T2_d_LMOP);
+    // Tensor<double> teov("TEov.tns", true);
+    // Tensor<densevec> d_LMOP("d_LMOP.tns", true);
+    // dlpno_bottleneck2(tevv, d_LMOP);
 }

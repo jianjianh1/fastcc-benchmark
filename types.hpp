@@ -32,7 +32,7 @@ public:
   // vec * scalar
   // scalar * vec
   // vec * vec -> inner dot, we don't ever need  element-wise
-  densevec operator*(double scalar) {
+  densevec operator*(double scalar) const {
     std::vector<double> res_data;
     for (int i = 0; i < size; i++) {
       res_data.push_back(values[i] * scalar);
@@ -58,7 +58,7 @@ public:
     }
     return *this;
   }
-  double operator*(densevec other) {
+  double operator*(densevec other) const {
     if (size != other.size) {
       std::cerr << "Vector sizes do not match for an inner product"
                 << std::endl;
@@ -73,7 +73,7 @@ public:
     return result;
   }
 
-  densemat outer(densevec other);
+  densemat outer(densevec other) const;
 
   void free() { delete[] values; }
   bool operator==(densevec other) {
@@ -155,7 +155,7 @@ public:
   //  mat * vec -> vec. gemv
   //  vec * mat -> vec. gemv
   //
-  densemat operator*(double scalar) {
+  densemat operator*(double scalar) const {
     std::vector<double> res_data;
     for (int i = 0; i < size * size; i++) {
       res_data.push_back(scalar * values[i]);
@@ -163,7 +163,7 @@ public:
     densemat result = densemat(res_data);
     return result;
   }
-  densemat operator*(densemat other) {
+  densemat operator*(densemat other) const {
     if (size != other.size) {
       std::cerr << "Matrix sizes do not match for a matrix product"
                 << std::endl;
@@ -185,7 +185,7 @@ public:
     return result;
   }
   // Row of matrix shows up in result, column is contracted with another vector
-  densevec operator*(densevec other) {
+  densevec operator*(densevec other) const {
     if (size != other.getsize()) {
       std::cerr
           << "Matrix and vector sizes do not match for a matrix-vector product"
@@ -204,7 +204,7 @@ public:
     return result;
   }
 };
-densemat densevec::outer(densevec other) {
+densemat densevec::outer(densevec other) const {
   std::vector<double> res_data;
   for (int i = 0; i < size; i++) {
     for (int j = 0; j < other.size; j++) {

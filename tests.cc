@@ -629,19 +629,16 @@ void sparse_multiply_extrnonly() {
   std::cout << "recall 100%" << std::endl;
 }
 
-void teov_dlmop_opcount(){
-    Tensor<double> dteov("./test_data/TEov.tns", true);
-    Tensor<densevec> dlmop("./test_data/d_LMOP.tns", true);
-    // [j, K, i, b_ij] = (TEov[[j, b_mu, K]] * d_LMOP[[i, j, b_mu, b_ij]]) @ 88242
-    auto left_c = CoOrdinate(std::vector<int>({0, 1})); //batch,contraction
-    //auto left_c = CoOrdinate(std::vector<int>({1, 0})); //contraction,batch
-    auto right_c = CoOrdinate(std::vector<int>({1, 2})); //batch,contraction
-    //auto right_c = CoOrdinate(std::vector<int>({2, 1})); //contraction,batch
-    auto count_ops0 = dteov.count_ops(dlmop, left_c, right_c);
-    left_c = CoOrdinate(std::vector<int>({1, 0}));
-    right_c = CoOrdinate(std::vector<int>({2, 1}));
-    auto count_ops1 = dteov.count_ops(dlmop, left_c, right_c);
-    assert(count_ops0 == count_ops1);
+void teov_dlmop_opcount() {
+  Tensor<double> dteov("./test_data/TEov.tns", true);
+  Tensor<densevec> dlmop("./test_data/d_LMOP.tns", true);
+  auto left_c = CoOrdinate(std::vector<int>({0, 1})); // batch,contraction
+  auto right_c = CoOrdinate(std::vector<int>({1, 2})); // batch,contraction
+  auto count_ops0 = dteov.count_ops(dlmop, left_c, right_c);
+  left_c = CoOrdinate(std::vector<int>({1, 0}));
+  right_c = CoOrdinate(std::vector<int>({2, 1}));
+  auto count_ops1 = dteov.count_ops(dlmop, left_c, right_c);
+  assert(count_ops0 == count_ops1);
 }
 
 int main() {
@@ -666,5 +663,6 @@ int main() {
   sparse_multiply_extrnonly();
   std::cout << "Passed sparse_multiply_extrnonly" << std::endl;
   teov_dlmop_opcount();
+  std::cout << "Passed opcount teov * dlmop" << std::endl;
   return 0;
 }
