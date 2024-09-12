@@ -184,6 +184,21 @@ public:
     densemat result = densemat(res_data);
     return result;
   }
+  // Elementwise product followed by sum
+  double mult_reduce(densemat other) const {
+    if (size != other.size) {
+      std::cerr << "Matrix sizes do not match for an inner product"
+                << std::endl;
+      std::cerr << "Left is " << size << ", while right is " << other.getsize()
+                << std::endl;
+      exit(1);
+    }
+    double result = 0.0;
+    for (int i = 0; i < size * size; i++) {
+      result += values[i] * other(i / size, i % size);
+    }
+    return result;
+  }
   // Row of matrix shows up in result, column is contracted with another vector
   densevec operator*(densevec other) const {
     if (size != other.getsize()) {

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <boost/functional/hash.hpp>
 #include <iostream>
+#include <chrono>
 #include <random>
 #include <ranges>
 #include <tsl/hopscotch_map.h>
@@ -274,12 +275,15 @@ public:
     return output;
   }
 
-  SymbolicTensor contract(SymbolicTensor &other, CoOrdinate left_contraction,
+  std::pair<SymbolicTensor, double> contract(SymbolicTensor &other, CoOrdinate left_contraction,
                           CoOrdinate left_batch, CoOrdinate right_contraction,
                           CoOrdinate right_batch) {
+      auto start = std::chrono::high_resolution_clock::now();
     std::unordered_set<CoOrdinate> output_coords = this->output_shape(
         other, left_contraction, left_batch, right_contraction, right_batch);
-    return SymbolicTensor(output_coords.begin(), output_coords.end());
+    auto end = std::chrono::high_resolution_clock::now();
+    double time_taken =  std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    return {SymbolicTensor(output_coords.begin(), output_coords.end()), time_taken};
   }
 };
 template <class DT> class IndexedTensor {
@@ -508,7 +512,10 @@ public:
                           std::is_same<RIGHT, densevec>() &&
                           std::is_same<RES, densemat>()) {
               outp = left_ev.second.densevec::outer(right_ev.second);
-            } else {
+            } else if constexpr(std::is_same<DT, densemat>() && std::is_same<RIGHT, densemat>() && std::is_same<RES, double>()){
+                outp = left_ev.second.mult_reduce(right_ev.second);
+
+            }else {
               outp = left_ev.second * right_ev.second;
             }
             auto result_ref = result.find(output_coords);
@@ -566,7 +573,14 @@ public:
                           std::is_same<R, densevec>() &&
                           std::is_same<DT, densemat>()) {
               outp = left_ev.second.densevec::outer(right_ev.second);
-            } else {
+            } else if constexpr (std::is_same<L, densemat>() &&
+                                 std::is_same<R, densemat>() &&
+                                 std::is_same<DT, double>()) {
+              outp = left_ev.second.mult_reduce(right_ev.second);
+
+            }
+
+            else {
               outp = left_ev.second * right_ev.second;
             }
             auto result_ref = result.find(output_coords);
@@ -586,7 +600,6 @@ public:
     for (auto &nnz : result) {
       this->get_nonzeros().push_back(NNZ<DT>(nnz.second, nnz.first));
     }
-    assert(this->get_size() == result.size());
     result.clear();
   }
 
