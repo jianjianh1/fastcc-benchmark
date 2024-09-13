@@ -1,4 +1,5 @@
 #include "contract.hpp"
+#include <unordered_set>
 #include "read.hpp"
 #include "utils.hpp"
 #include <chrono>
@@ -641,6 +642,79 @@ void teov_dlmop_opcount() {
   assert(count_ops0 == count_ops1);
 }
 
+Tensor<densevec> tevv_dlmop_fillvalues(Tensor<double> dtevv, Tensor<densevec> dlmop) {
+    // [b_mu, K, m, i, e_mi] = (TEvv[[b_mu, e_mu, K]] * d_LMOP[[m, i, e_mu,
+    // e_mi]]) contract e_mu
+    auto left_c = CoOrdinate(std::vector<int>({1}));
+    auto left_b = CoOrdinate(std::vector<int>({}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({}));
+    Tensor<densevec> result;
+    auto start = std::chrono::high_resolution_clock::now();
+    result.fill_values(dtevv, dlmop, left_c, left_b, right_c, right_b);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for fillvalues "
+              << std::chrono::duration_cast<std::chrono::microseconds>(end -
+                                                                       start)
+                     .count()
+              << " microseconds" << std::endl;
+    return result;
+}
+
+SymbolicTensor tevv_dlmop_outputshape(Tensor<double> dtevv, Tensor<densevec> dlmop) {
+    // [b_mu, K, m, i, e_mi] = (TEvv[[b_mu, e_mu, K]] * d_LMOP[[m, i, e_mu,
+    // e_mi]]) contract e_mu
+    auto left_c = CoOrdinate(std::vector<int>({1}));
+    auto left_b = CoOrdinate(std::vector<int>({}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({}));
+    auto left_symbolic = SymbolicTensor(dtevv);
+    auto right_symbolic = SymbolicTensor(dlmop);
+    auto res =
+        left_symbolic.contract(right_symbolic, left_c, left_b, right_c, right_b);
+    std::cout << "Time taken for get_contraction_shape "
+              << res.second
+              << " microseconds" << std::endl;
+    return res.first;
+}
+
+void tevv_dlmop_outputshape(){
+    Tensor<double> tevv("./test_data/TEvv.tns", true);
+    Tensor<densevec> d_LMOP("./test_data/d_LMOP.tns", true);
+    SymbolicTensor output_shape = tevv_dlmop_outputshape(tevv, d_LMOP);
+    Tensor<densevec> output_fv = tevv_dlmop_fillvalues(tevv, d_LMOP);
+    std::cout << "Output shape size " << output_shape.get_size() << std::endl;
+    std::cout << "Output fill values " << output_fv.get_size() << std::endl;
+    assert(output_shape.get_size() == output_fv.get_size());
+    for (auto &nnz : output_fv) {
+        bool found = false;
+        for (auto &coord : output_shape) {
+          if (coord == nnz.get_coords()) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          std::cout << "Something in fill values not found in Symbolic Tensor "
+                    << nnz.get_coords().to_string() << ": "
+                    << nnz.get_data().to_string() << std::endl;
+        }
+    }
+    for (auto &coord : output_shape) {
+        bool found = false;
+        for (auto &nnz : output_fv) {
+          if (coord == nnz.get_coords()) {
+            found = true;
+            break;
+          }
+        }
+        if (!found)
+          std::cout << "Something in Symbolic Tensor not found in full output "
+                    << coord.to_string() << std::endl;
+    }
+
+}
+
 int main() {
   dense_gemm_count();
   std::cout << "Passed dense_gemm_opcount" << std::endl;
@@ -664,5 +738,8 @@ int main() {
   std::cout << "Passed sparse_multiply_extrnonly" << std::endl;
   teov_dlmop_opcount();
   std::cout << "Passed opcount teov * dlmop" << std::endl;
+  tevv_dlmop_outputshape();
+  std::cout << "Passed outputshape tevv * dlmop" << std::endl;
+
   return 0;
 }
