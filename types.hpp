@@ -1,7 +1,7 @@
 #ifndef TYPES_H
 #define TYPES_H
-#include <cassert>
-#include <cstring>
+#include <assert.h>
+#include <string.h>
 #include <iostream>
 #include <math.h>
 #include <stdlib.h>
@@ -13,7 +13,7 @@ class densevec {
   double *values=nullptr;
 
 public:
-  void clear() { std::memset(values, 0, sizeof(double) * size); }
+  void clear() { memset(values, 0, sizeof(double) * size); }
   densevec() { }
   densevec(std::vector<double> some_data) {
     size = some_data.size();
@@ -40,7 +40,7 @@ public:
     densevec result = densevec(res_data);
     return result;
   }
-  std::string to_string() {
+  std::string to_string() const {
     std::string result = "";
     for (int i = 0; i < size; i++) {
       result += std::to_string(values[i]) + " ";
@@ -80,7 +80,7 @@ public:
     if (size != other.size) {
       return false;
     }
-    return (std::memcmp(values, other.values, sizeof(double) * size) == 0);
+    return (memcmp(values, other.values, sizeof(double) * size) == 0);
   }
 };
 densevec operator*(double k, densevec other) { return other * k; }
@@ -90,7 +90,7 @@ class densemat {
   double *values = nullptr;
 
 public:
-  void clear() { std::memset(values, 0, sizeof(double) * size * size); }
+  void clear() { memset(values, 0, sizeof(double) * size * size); }
   densemat() { }
   void free() {
     if (values != nullptr) {
@@ -128,7 +128,7 @@ public:
     if (size != other.size) {
       return false;
     }
-    return (std::memcmp(values, other.values, sizeof(double) * size * size) ==
+    return (memcmp(values, other.values, sizeof(double) * size * size) ==
             0);
   }
 // In-place eltwise operations
