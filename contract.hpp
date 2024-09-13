@@ -37,14 +37,14 @@ public:
       this->coords.push_back(coords[i]);
     }
     for (auto &cord : this->coords) {
-      mybits <<= sizeof(int);
+      mybits <<= (sizeof(int)*8);
       mybits |= std::bitset<BITWIDTH>(cord);
     }
   }
   CoOrdinate(std::vector<int> data) {
     this->coords = data;
     for (auto &cord : this->coords) {
-      mybits <<= sizeof(int);
+      mybits <<= (sizeof(int)*8);
       mybits |= std::bitset<BITWIDTH>(cord);
     }
   }
@@ -56,7 +56,7 @@ public:
     coords.insert(coords.end(), left.coords.begin(), left.coords.end());
     coords.insert(coords.end(), right.coords.begin(), right.coords.end());
     for (auto &cord : this->coords) {
-      mybits <<= sizeof(int);
+      mybits <<= (sizeof(int)*8); // sizeof is in bytes, so we need to multiply by 8 to get bits
       mybits |= std::bitset<BITWIDTH>(cord);
     }
   }
@@ -207,6 +207,7 @@ public:
       indices.emplace_back(*it);
     }
   }
+  int get_size() { return indices.size(); }
   int count_ops(SymbolicTensor &other, CoOrdinate left_contraction,
                 CoOrdinate right_contraction) {
     assert(left_contraction.get_dimensionality() ==
@@ -417,7 +418,7 @@ public:
     this->_infer_dimensionality();
     this->_infer_shape();
   }
-  Tensor(int size) { nonzeros.reserve(size); }
+  Tensor(int size = 0) { nonzeros.reserve(size); }
   std::vector<NNZ<DT>> &get_nonzeros() { return nonzeros; }
   int get_size() { return nonzeros.size(); }
   void _infer_dimensionality() {
