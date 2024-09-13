@@ -8,9 +8,9 @@
 #include <random>
 #include <ranges>
 #include <tsl/hopscotch_map.h>
+#include <tsl/hopscotch_set.h>
 #include <type_traits>
 #include <unordered_map>
-#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -247,7 +247,7 @@ public:
   // tensors.
   // order is: (batch indices, left external indices, right external indices).
   // order within batch indices is dependent on the left operand
-  std::unordered_set<CoOrdinate> output_shape(SymbolicTensor &other,
+  tsl::hopscotch_set<CoOrdinate> output_shape(SymbolicTensor &other,
                                               CoOrdinate left_contr,
                                               CoOrdinate left_batch,
                                               CoOrdinate right_contr,
@@ -256,7 +256,7 @@ public:
     this->index_shape(left_contr, left_batch, first_index);
     hashmap_shape second_index;
     other.index_shape(right_contr, right_batch, second_index);
-    std::unordered_set<CoOrdinate> output;
+    tsl::hopscotch_set<CoOrdinate> output;
     // Join on the keys of the map, cartesian product of the values.
     for (auto &entry : first_index) {
       auto ref = second_index.find(entry.first);
@@ -280,7 +280,7 @@ public:
                           CoOrdinate left_batch, CoOrdinate right_contraction,
                           CoOrdinate right_batch) {
       auto start = std::chrono::high_resolution_clock::now();
-    std::unordered_set<CoOrdinate> output_coords = this->output_shape(
+      tsl::hopscotch_set<CoOrdinate> output_coords = this->output_shape(
         other, left_contraction, left_batch, right_contraction, right_batch);
     auto end = std::chrono::high_resolution_clock::now();
     double time_taken =  std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -461,7 +461,7 @@ public:
   // tensors.
   // order is: (batch indices, left external indices, right external indices).
   // order within batch indices is dependent on the left operand
-  std::unordered_set<CoOrdinate>
+  tsl::hopscotch_set<CoOrdinate>
   output_shape(Tensor &other, CoOrdinate left_contr, CoOrdinate left_batch,
                CoOrdinate right_contr, CoOrdinate right_batch) {
     auto right_symbolic = SymbolicTensor(other);
@@ -472,7 +472,7 @@ public:
   Tensor contract(Tensor &other, CoOrdinate left_contraction,
                   CoOrdinate left_batch, CoOrdinate right_contraction,
                   CoOrdinate right_batch) {
-    std::unordered_set<CoOrdinate> output_coords = this->output_shape(
+    tsl::hopscotch_set<CoOrdinate> output_coords = this->output_shape(
         other, left_contraction, left_batch, right_contraction, right_batch);
     return Tensor(output_coords.begin(), output_coords.end());
   }
