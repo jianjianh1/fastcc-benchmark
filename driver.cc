@@ -226,6 +226,78 @@ void teov_dlmop_multiply(Tensor<double> dteov, Tensor<densevec> dlmop){
     std::cout << "Num ops " << count_ops << std::endl;
 }
 
+SymbolicTensor tevv_dlmop_outputshape(Tensor<double> dtevv, Tensor<densevec> dlmop) {
+    // [b_mu, K, m, i, e_mi] = (TEvv[[b_mu, e_mu, K]] * d_LMOP[[m, i, e_mu,
+    // e_mi]]) contract e_mu
+    auto left_c = CoOrdinate(std::vector<int>({1}));
+    auto left_b = CoOrdinate(std::vector<int>({}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({}));
+    auto left_symbolic = SymbolicTensor(dtevv);
+    auto right_symbolic = SymbolicTensor(dlmop);
+    auto res =
+        left_symbolic.contract(right_symbolic, left_c, left_b, right_c, right_b);
+    std::cout << "Time taken for get_contraction_shape "
+              << res.second
+              << " microseconds" << std::endl;
+    return res.first;
+}
+
+Tensor<densevec> tevv_dlmop_contraction(Tensor<double> dtevv, Tensor<densevec> dlmop) {
+    // [b_mu, K, m, i, e_mi] = (TEvv[[b_mu, e_mu, K]] * d_LMOP[[m, i, e_mu,
+    // e_mi]]) contract e_mu
+    auto left_c = CoOrdinate(std::vector<int>({1}));
+    auto left_b = CoOrdinate(std::vector<int>({}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({}));
+    auto start = std::chrono::high_resolution_clock::now();
+    Tensor<densevec> output_tensor = dtevv.multiply<densevec>(
+        dlmop, left_c, left_b, right_c, right_b);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for mult "
+              << std::chrono::duration_cast<std::chrono::microseconds>(end -
+                                                                       start)
+                     .count()
+              << " microseconds" << std::endl;
+    return output_tensor;
+}
+
+Tensor<densevec> tevv_dlmop_fillvalues(Tensor<double> dtevv, Tensor<densevec> dlmop) {
+    // [b_mu, K, m, i, e_mi] = (TEvv[[b_mu, e_mu, K]] * d_LMOP[[m, i, e_mu,
+    // e_mi]]) contract e_mu
+    auto left_c = CoOrdinate(std::vector<int>({1}));
+    auto left_b = CoOrdinate(std::vector<int>({}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({}));
+    Tensor<densevec> result;
+    auto start = std::chrono::high_resolution_clock::now();
+    result.fill_values(dtevv, dlmop, left_c, left_b, right_c, right_b);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for fillvalues "
+              << std::chrono::duration_cast<std::chrono::microseconds>(end -
+                                                                       start)
+                     .count()
+              << " microseconds" << std::endl;
+    return result;
+}
+
+void tevv_dlmop_taskq() {
+    TaskQueue tq;
+    Tensor<double> dtevv("TEvv.tns", true);
+    Tensor<densevec> dlmop("d_LMOP.tns", true);
+    Tensor<densevec> dlmop_out(dlmop.get_size());
+    tq.addContraction(dlmop_out, dtevv, dlmop, CoOrdinate({1}), CoOrdinate({}),
+                      CoOrdinate({2}), CoOrdinate({}));
+    auto start = std::chrono::high_resolution_clock::now();
+    tq.run();
+    auto end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for mult in tq"
+              << std::chrono::duration_cast<std::chrono::microseconds>(end -
+                                                                       start)
+                     .count()
+              << " microseconds" << std::endl;
+}
+
 void task_queue_loop() {
     // check for mem leak
     TaskQueue tq;
@@ -255,12 +327,47 @@ void task_queue_loop() {
 }
 
 int main() {
-    //task_queue();
-    task_queue_loop();
-    // Tensor<double> tevv("TEvv.tns", true);
+    // task_queue();
+    // task_queue_loop();
+    Tensor<double> tevv("TEvv.tns", true);
     // Tensor<double> d_LMOP_T2_d_LMOP("T2_d_LMOP.tns", true);
     // dlpno_bottleneck(tevv, d_LMOP_T2_d_LMOP);
     // Tensor<double> teov("TEov.tns", true);
-    // Tensor<densevec> d_LMOP("d_LMOP.tns", true);
+    Tensor<densevec> d_LMOP("d_LMOP.tns", true);
+    SymbolicTensor output_shape = tevv_dlmop_outputshape(tevv, d_LMOP);
+    Tensor<densevec> output_full = tevv_dlmop_contraction(tevv, d_LMOP);
+    Tensor<densevec> output_fv = tevv_dlmop_fillvalues(tevv, d_LMOP);
+    std::cout << "Output shape size " << output_shape.get_size() << std::endl;
+    std::cout << "Output full size " << output_full.get_size() << std::endl;
+    std::cout << "Output fill values " << output_fv.get_size() << std::endl;
+    // assert(output_shape.get_size() == output_full.get_size());
+    for (auto &nnz : output_full) {
+        bool found = false;
+        for (auto &coord : output_shape) {
+          if (coord == nnz.get_coords()) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          std::cout << "Something in full output not found in Symbolic Tensor "
+                    << nnz.get_coords().to_string() << ": "
+                    << nnz.get_data().to_string() << std::endl;
+        }
+    }
+    for (auto &coord : output_shape) {
+        bool found = false;
+        for (auto &nnz : output_full) {
+          if (coord == nnz.get_coords()) {
+            found = true;
+            break;
+          }
+        }
+        if (!found)
+          std::cout << "Something in Symbolic Tensor not found in full output "
+                    << coord.to_string() << std::endl;
+    }
+    // tevv_dlmop_fillvalues(tevv, d_LMOP);
+    // tevv_dlmop_taskq();
     // dlpno_bottleneck2(tevv, d_LMOP);
 }
