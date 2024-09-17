@@ -2,7 +2,7 @@ import invoke
 extension_name = "sparse_opcnt"
 
 invoke.run(
-    "clang++  -I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/c++/11 -I/home/saurabh/taskflow -I/home/saurabh/hopscotch-map/include -O3 -mtune=native -march=native -shared -std=c++2a -fPIC -L /usr/lib/gcc/x86_64-linux-gnu/11 driver.cc "
+    "clang++  -I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/c++/11 -I/home/saurabh/taskflow -I/home/saurabh/hopscotch-map/include -I/opt/intel/oneapi/mpi/2021.9.0/include -O3 -mtune=native -march=native -shared -std=c++2a -fPIC -L /usr/lib/gcc/x86_64-linux-gnu/11 -L /opt/intel/oneapi/mkl/latest/lib/intel64 driver.cc -lmkl_rt "
     "-o libspcnt.so "
 )
 #invoke.run(
