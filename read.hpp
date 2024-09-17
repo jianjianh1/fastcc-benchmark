@@ -163,6 +163,53 @@ template <> Tensor<densemat>::Tensor(std::string filename, bool has_header) {
   this->_infer_shape();
 }
 
+void read_from_dump(Tensor<densemat> &t, std::string filename) {
+  // assume that there is a header with shape.
+  std::ifstream file(filename);
+  std::string line;
+  int dimensionality = 0;
+  std::vector<int> extents;
+  bool header = false;
+  while (std::getline(file, line)) {
+    std::vector<int> nnz_cords;
+    if (!header) {
+      if (!std::isdigit(line[0])) {
+        continue;
+      }
+      auto pos = line.find(" ");
+      while (pos != std::string::npos) {
+        nnz_cords.push_back(std::stoi(line.substr(0, pos)));
+        line = line.substr(pos + 1);
+        pos = line.find(" ");
+      }
+      std::cout << "Dimensionality inferred: " << nnz_cords.size() << std::endl;
+      dimensionality = nnz_cords.size();
+      header = true;
+      continue;
+    }
+    if (!std::isdigit(line[0])) {
+      continue;
+    }
+    auto pos = line.find(" ");
+    int ctr = 0;
+    while (pos != std::string::npos && ctr++ < dimensionality) {
+      nnz_cords.push_back(std::stoi(line.substr(0, pos)));
+      line = line.substr(pos + 1);
+      pos = line.find(" ");
+    }
+    line = line.substr(pos + 1);
+    std::vector<double> nnz_val;
+    while (line.size() > 0) {
+      auto pos = line.find(" ");
+      nnz_val.push_back(std::stod(line.substr(0, pos)));
+      line = line.substr(pos + 1);
+    }
+    densemat nnz_mat = densemat(nnz_val);
+    CoOrdinate this_coords = CoOrdinate(nnz_cords);
+    t.get_nonzeros().push_back(NNZ<densemat>(nnz_mat, this_coords));
+  }
+}
+
 template <> void Tensor<double>::write(std::string filename) {
   std::ofstream file(filename, std::ios_base::app);
   for (int i = 0; i < this->dimensionality; i++) {
