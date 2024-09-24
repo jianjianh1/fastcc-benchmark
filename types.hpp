@@ -44,7 +44,7 @@ public:
     // }
     // densevec result = densevec(res_data);
     // return result;
-    densevec result = densevec(values, size);
+    densevec result = densevec(res, size);
     return result;
   }
   std::string to_string() const {
