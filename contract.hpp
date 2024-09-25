@@ -53,12 +53,26 @@ public:
 
   // This is going to concatenate two coordinates
   CoOrdinate(CoOrdinate left, CoOrdinate right) {
+      coords.reserve(left.get_dimensionality() + right.get_dimensionality());
+      //memcpy(coords.data(), left.coords.data(), left.get_dimensionality() * sizeof(int));
+      //memcpy(coords.data() + left.get_dimensionality(), right.coords.data(), right.get_dimensionality() * sizeof(int));
     coords.insert(coords.end(), left.coords.begin(), left.coords.end());
     coords.insert(coords.end(), right.coords.begin(), right.coords.end());
     for (auto &cord : this->coords) {
       mybits <<= (sizeof(int)*8); // sizeof is in bytes, so we need to multiply by 8 to get bits
       mybits |= std::bitset<BITWIDTH>(cord);
     }
+  }
+
+  CoOrdinate(CoOrdinate left, CoOrdinate mid, CoOrdinate right){
+      coords.reserve(left.get_dimensionality() + mid.get_dimensionality() + right.get_dimensionality());
+      coords.insert(coords.end(), left.coords.begin(), left.coords.end());
+      coords.insert(coords.end(), mid.coords.begin(), mid.coords.end());
+      coords.insert(coords.end(), right.coords.begin(), right.coords.end());
+      for (auto &cord : this->coords) {
+        mybits <<= (sizeof(int)*8); // sizeof is in bytes, so we need to multiply by 8 to get bits
+        mybits |= std::bitset<BITWIDTH>(cord);
+      }
   }
 
   CoOrdinate gather(CoOrdinate positions) const{
@@ -119,13 +133,13 @@ public:
 
 template <> struct std::hash<CoOrdinate> {
   std::size_t operator()(const CoOrdinate &c) const {
-    std::string catted_cord = "";
-    for (auto &&coord : c) {
-      catted_cord += std::to_string(coord);
-      catted_cord += ",";
-    }
-    return std::hash<std::string>{}(catted_cord);
-    //return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits().to_ullong());
+    //std::string catted_cord = "";
+    //for (auto &&coord : c) {
+    //  catted_cord += std::to_string(coord);
+    //  catted_cord += ",";
+    //}
+    //return std::hash<std::string>{}(catted_cord);
+    return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits());
   }
 };
 
@@ -264,10 +278,10 @@ public:
         for (auto &leftcord : entry.second) {
           for (auto &rightcord : ref->second) {
             CoOrdinate batch_coords = leftcord.first;
-            CoOrdinate external_coords =
-                CoOrdinate(leftcord.second, rightcord.second);
+            //CoOrdinate external_coords =
+            //    CoOrdinate(leftcord.second, rightcord.second);
             CoOrdinate output_coords =
-                CoOrdinate(batch_coords, external_coords);
+                CoOrdinate(batch_coords, leftcord.second, rightcord.second);
             output.insert(output_coords);
           }
         }
@@ -503,11 +517,11 @@ public:
             CoOrdinate batch_coords = left_entry.first.gather(
                 batch_pos_afterhash); // assumes that batch positions are leftmost, so
                              // they will work with a left subset.
-            CoOrdinate external_coords = CoOrdinate(
-                left_ev.first,
-                right_ev.first); // convention to put left followed by right
+            //CoOrdinate external_coords = CoOrdinate(
+            //    left_ev.first,
+            //    right_ev.first); // convention to put left followed by right
             CoOrdinate output_coords =
-                CoOrdinate(batch_coords, external_coords);
+                CoOrdinate(batch_coords, left_ev.first, right_ev.first);
             RES outp;
             if constexpr (std::is_same<DT, densevec>() &&
                           std::is_same<RIGHT, densevec>() &&
@@ -564,11 +578,11 @@ public:
             CoOrdinate batch_coords = left_entry.first.gather(
                 batch_pos_afterhash); // assumes that batch positions are leftmost, so
                              // they will work with a left subset.
-            CoOrdinate external_coords = CoOrdinate(
-                left_ev.first,
-                right_ev.first); // convention to put left followed by right
+            //CoOrdinate external_coords = CoOrdinate(
+            //    left_ev.first,
+            //    right_ev.first); // convention to put left followed by right
             CoOrdinate output_coords =
-                CoOrdinate(batch_coords, external_coords);
+                CoOrdinate(batch_coords, left_ev.first, right_ev.first);
             DT outp;
             if constexpr (std::is_same<L, densevec>() &&
                           std::is_same<R, densevec>() &&
