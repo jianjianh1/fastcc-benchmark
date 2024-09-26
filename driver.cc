@@ -206,14 +206,17 @@ void task_queue() {
   // diff the two files on disk, should be equal
 }
 
-void teov_dlmop_opcount(Tensor<double> dteov, Tensor<densevec> dlmop){
-    // [j, K, i, b_ij] = (TEov[[j, b_mu, K]] * d_LMOP[[i, j, b_mu, b_ij]]) @ 88242
-    auto left_c = CoOrdinate(std::vector<int>({0, 1})); //batch,contraction
-    //auto left_c = CoOrdinate(std::vector<int>({1, 0})); //contraction,batch
-    auto right_c = CoOrdinate(std::vector<int>({1, 2})); //batch,contraction
-    //auto right_c = CoOrdinate(std::vector<int>({2, 1})); //contraction,batch
-    auto count_ops = dteov.count_ops(dlmop, left_c, right_c);
-    std::cout << "Num ops " << count_ops << std::endl;
+void teov_dlmop_shape(Tensor<double> dteov, Tensor<densevec> dlmop){
+    // [m, K, i, j, e_ij] = (TEov[[m, e_mu, K]] * d_LMOP[[i, j, e_mu, e_ij]]) @ 4124559.0
+
+    auto left_c = CoOrdinate(std::vector<int>({1}));
+    auto left_b = CoOrdinate(std::vector<int>({}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({}));
+    SymbolicTensor left = SymbolicTensor(dteov);
+    SymbolicTensor right = SymbolicTensor(dlmop);
+    auto res_pair = left.contract(right, left_c, left_b, right_c, right_b);
+    std::cout << "Time taken to find shape " << res_pair.second << std::endl;
 }
 
 void teov_dlmop_multiply(Tensor<double> dteov, Tensor<densevec> dlmop){
@@ -354,7 +357,7 @@ void dlpno_bottleneck3(Tensor<double> tevv, Tensor<densemat> TEov_d_LMOP_T1_S_ii
 int main() {
     Tensor<double> teov("TEov.tns", true);
     Tensor<densevec> dlmop("d_LMOP.tns", true);
-    teov_dlmop_multiply(teov, dlmop);
+    teov_dlmop_shape(teov, dlmop);
      //task_queue_loop();
     //Tensor<double> tevv("TEvv.tns", true);
     //Tensor<densemat> teov_something;
