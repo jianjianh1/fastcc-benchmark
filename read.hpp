@@ -163,7 +163,7 @@ template <> Tensor<densemat>::Tensor(std::string filename, bool has_header) {
   this->_infer_shape();
 }
 
-void read_from_dump(Tensor<densemat> &t, std::string filename) {
+template<class DENSE> void read_from_dump(Tensor<DENSE> &t, std::string filename) {
   // assume that there is a header with shape.
   std::ifstream file(filename);
   std::string line;
@@ -204,9 +204,9 @@ void read_from_dump(Tensor<densemat> &t, std::string filename) {
       nnz_val.push_back(std::stod(line.substr(0, pos)));
       line = line.substr(pos + 1);
     }
-    densemat nnz_mat = densemat(nnz_val);
+    DENSE nnz_mat = DENSE(nnz_val);
     CoOrdinate this_coords = CoOrdinate(nnz_cords);
-    t.get_nonzeros().push_back(NNZ<densemat>(nnz_mat, this_coords));
+    t.get_nonzeros().push_back(NNZ<DENSE>(nnz_mat, this_coords));
   }
 }
 
