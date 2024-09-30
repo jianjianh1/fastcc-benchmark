@@ -40,7 +40,9 @@ PYBIND11_MODULE(sparse_opcnt, m) {
       .def(pybind11::init<Tensor<densemat> &>())
       .def(pybind11::init<Tensor<densevec> &>())
       .def("count_ops", &SymbolicTensor::count_ops)
-      .def("contract", &SymbolicTensor::contract);
+      .def("contract", &SymbolicTensor::contract)
+      .def("contract_dense", &SymbolicTensor::contract_dense);
+
   pybind11::class_<CoOrdinate>(m, "CoOrdinate")
       .def(pybind11::init<std::vector<int>>());
   pybind11::class_<TaskQueue>(m, "TaskQueue")

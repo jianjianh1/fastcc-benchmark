@@ -715,7 +715,51 @@ void tevv_dlmop_outputshape(){
 
 }
 
+void symtensor_inf_shape() {
+    Tensor<double> teov("./test_data/TEov.tns", true);
+    SymbolicTensor symteov(teov);
+    std::vector<int> shape = symteov.get_shape();
+    std::vector<int> ground_truth = {4, 24, 375};
+    assert(shape == ground_truth);
+}
+
+void dense_opcount(){
+    // res(i, k, j, e_ij) = teov(i, e_mu, k) * dlmop(i, j, e_mu, e_ij)
+    // MO = 4
+    // PAO = 24
+    // AUX = 375
+    Tensor<double> teov("./test_data/TEov.tns", true);
+    Tensor<densevec> dlmop("./test_data/d_LMOP.tns", true);
+    SymbolicTensor symteov(teov);
+    SymbolicTensor symdlmop(dlmop);
+    auto left_c = CoOrdinate(std::vector<int>({1}));
+    auto left_b = CoOrdinate(std::vector<int>({0}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({0}));
+    auto res_pair = symteov.contract_dense(symdlmop, left_c, left_b, right_c, right_b);
+    assert(res_pair.second == 4 * 4 * 24 * 375);
+    SymbolicTensor res = res_pair.first;
+    std::vector<int> shape = res.get_shape();
+    std::vector<int> ground_truth = {4, 375, 4};
+    assert(shape == ground_truth);
+    // res2(i, f_mu, j, e_ij) = teov(i, f_mu, k) * res(i, k, j, e_ij)
+    left_c = CoOrdinate(std::vector<int>({2}));
+    left_b = CoOrdinate(std::vector<int>({0}));
+    right_c = CoOrdinate(std::vector<int>({1}));
+    right_b = CoOrdinate(std::vector<int>({0}));
+    auto res2_pair = symteov.contract_dense(res, left_c, left_b, right_c, right_b);
+    assert(res2_pair.second == 4 * 375 * 4 * 24);
+    SymbolicTensor res2 = res2_pair.first;
+    shape = res2.get_shape();
+    ground_truth = {4, 24, 4};
+    assert(shape == ground_truth);
+}
+
 int main() {
+    symtensor_inf_shape();
+    std::cout << "Passed symtensor_inf_shape" << std::endl;
+    dense_opcount();
+    std::cout << "Passed dense opcount and shape" << std::endl;
   dense_gemm_count();
   std::cout << "Passed dense_gemm_opcount" << std::endl;
   dense_gemm_shape();
