@@ -193,6 +193,23 @@ class SymbolicTensor {
   using hashmap_shape =
       tsl::hopscotch_map<CoOrdinate,
                          std::vector<std::pair<CoOrdinate, CoOrdinate>>>;
+  std::vector<int> shape;
+  void _infer_shape() {
+    if (shape.size() == 0) {
+      shape = std::vector<int>(indices[0].get_dimensionality(), -1);
+      for (auto &cord : indices) {
+        for (int i = 0; i < cord.get_dimensionality(); i++) {
+          if (cord.get_index(i) > shape[i]) {
+            shape[i] = cord.get_index(i);
+          }
+        }
+      }
+      for (int i = 0; i < shape.size(); i++) {
+        shape[i] += 1;
+      }
+    }
+  }
+
   void index_counts(CoOrdinate contraction, hashmap_counts &indexed_tensor) {
     for (auto &cord : *this) {
       auto filtered_coords = cord.gather(contraction);
@@ -221,7 +238,14 @@ public:
       indices.emplace_back(*it);
     }
   }
+  SymbolicTensor(CoOrdinate singleton){
+      indices.push_back(singleton);
+  }
   int get_size() { return indices.size(); }
+  std::vector<int> get_shape() {
+    _infer_shape();
+    return shape;
+  }
   int count_ops(SymbolicTensor &other, CoOrdinate left_contraction,
                 CoOrdinate right_contraction) {
     assert(left_contraction.get_dimensionality() ==
@@ -288,6 +312,41 @@ public:
       }
     }
     return output;
+  }
+
+  std::pair<SymbolicTensor, double> contract_dense(SymbolicTensor &other,
+                                                   CoOrdinate left_contraction,
+                                                   CoOrdinate left_batch,
+                                                   CoOrdinate right_contraction,
+                                                   CoOrdinate right_batch) {
+    CoOrdinate left_shape = this->get_shape();
+    CoOrdinate right_shape = other.get_shape();
+    CoOrdinate left_batch_shape = left_shape.gather(left_batch);
+    CoOrdinate right_batch_shape = right_shape.gather(right_batch);
+    CoOrdinate left_contraction_shape = left_shape.gather(left_contraction);
+    CoOrdinate right_contraction_shape = right_shape.gather(right_contraction);
+
+    assert(left_contraction_shape == right_contraction_shape);
+    assert(left_batch_shape == right_batch_shape);
+    CoOrdinate left_external_shape =
+        left_shape.remove(CoOrdinate(left_batch, left_contraction));
+    CoOrdinate right_external_shape =
+        right_shape.remove(CoOrdinate(right_batch, right_contraction));
+    CoOrdinate output_shape =
+        CoOrdinate(left_batch_shape, left_external_shape, right_external_shape);
+    double dense_cost = 1.0;
+    for (auto &coord : output_shape) {
+      dense_cost *= coord;
+    }
+    for (auto &coord : left_contraction_shape) {
+      dense_cost *= coord;
+    }
+    std::vector<int> output_shape_vec;
+    for (auto &_one_indexed_cord : output_shape) {
+      output_shape_vec.push_back(_one_indexed_cord - 1);
+    }
+    SymbolicTensor output = SymbolicTensor(CoOrdinate(output_shape_vec));
+    return {output, dense_cost};
   }
 
   std::pair<SymbolicTensor, double> contract(SymbolicTensor &other, CoOrdinate left_contraction,
@@ -601,6 +660,9 @@ public:
             auto result_ref = result.find(output_coords);
             if (result_ref != result.end()) {
               result_ref.value() += outp;
+              if constexpr (std::is_same<DT, densevec>() || std::is_same<DT, densemat>()) {
+                outp.free();
+              }
             } else {
               result[output_coords] = outp;
             }
