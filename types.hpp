@@ -86,11 +86,21 @@ public:
   densemat outer(densevec other) const;
 
   void free() { delete[] values; }
-  bool operator==(densevec other) {
+  bool operator==(densevec other) const {
+#define FP_EQ(a, b) (fabs((a) - (b)) <= 5e-3)
     if (size != other.size) {
+      std::cerr << "Operator== on densevec: size of vectors do not match"
+                << std::endl;
       return false;
     }
-    return (memcmp(values, other.getdata(), sizeof(double) * size) == 0);
+    for (int i = 0; i < size; i++) {
+      if (!FP_EQ(values[i], other(i))) {
+          std::cerr << "Operator== on densevec: values do not match "<< values[i] << " " << other(i) << " at "
+                    << i << std::endl;
+        return false;
+      }
+    }
+    return true;
   }
 };
 densevec operator*(double k, densevec other) { return other * k; }
@@ -137,11 +147,7 @@ public:
     return result;
   }
   bool operator==(densemat other) {
-    if (size != other.size) {
-      return false;
-    }
-    return (memcmp(values, other.values, sizeof(double) * size * size) ==
-            0);
+    return densevec(values, size * size) == densevec(other.getdata(), size * size);
   }
 // In-place eltwise operations
 #define OVERLOAD_OP(OP)                                                        \

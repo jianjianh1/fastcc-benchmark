@@ -41,6 +41,13 @@ public:
       mybits |= std::bitset<BITWIDTH>(cord);
     }
   }
+  void all_positions(int dimensionality) {
+    coords.clear();
+    // get 0 to D-1, all positions.
+    for (int i = 0; i < dimensionality; i++) {
+      coords.push_back(i);
+    }
+  }
   CoOrdinate(std::vector<int> data) {
     this->coords = data;
     for (auto &cord : this->coords) {
@@ -173,7 +180,16 @@ public:
     return str;
   }
   int get_index(int dim) { return coords.get_index(dim); }
-  DT get_data() { return data; }
+  DT get_data() {
+    return data;
+  }
+  void set_zero();
+  void operator+=(DT other) {
+    data += other;
+    if constexpr (std::is_class<DT>::value) {
+      other.free();
+    }
+  }
 
   CoOrdinate get_coords() { return coords; }
 
@@ -185,6 +201,13 @@ public:
     return data == other.data && coords == other.coords;
   }
 };
+template<> void NNZ<double>::set_zero(){
+    data = 0.0;
+}
+template<> void NNZ<float>::set_zero(){
+    data = 0.0;
+}
+
 
 template <class DT> class Tensor;
 class SymbolicTensor {
@@ -360,6 +383,45 @@ public:
     return {SymbolicTensor(output_coords.begin(), output_coords.end()), time_taken};
   }
 };
+
+template <class DT> class MultilevelIndexedTensor {
+  using hashmap_vals =
+      tsl::hopscotch_map<CoOrdinate, tsl::hopscotch_map<CoOrdinate, DT>>;
+  using inner_map = tsl::hopscotch_map<CoOrdinate, DT>;
+  hashmap_vals indexed_tensor;
+
+public:
+  MultilevelIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate first_level_cords,
+                          CoOrdinate second_level_cords) {
+    assert(first_level_cords.get_dimensionality() +
+               second_level_cords.get_dimensionality() ==
+           base_tensor.get_dimensionality());
+    for (auto &nnz : base_tensor) {
+      auto first_level = nnz.get_coords().gather(first_level_cords);
+      auto second_level = nnz.get_coords().gather(second_level_cords);
+      auto it = indexed_tensor.find(first_level);
+      if (it != indexed_tensor.end()) {
+        it.value()[second_level] = nnz.get_data();
+      } else {
+        indexed_tensor[first_level] = {{second_level, nnz.get_data()}};
+      }
+    }
+  }
+  std::optional<DT> getif_valat(CoOrdinate first_level,
+                                CoOrdinate second_level) {
+    // lookups that fail in the first level will throw an exception
+    inner_map &inner = indexed_tensor[first_level];
+    auto it2 = inner.find(second_level);
+    if (it2 != inner.end()) {
+      return std::optional(it2.value());
+    } else {
+      return std::nullopt;
+    }
+  }
+  inner_map &get_map(CoOrdinate first_level) {
+    return indexed_tensor[first_level];
+  }
+};
 template <class DT> class IndexedTensor {
   using hashmap_vals =
       tsl::hopscotch_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
@@ -448,7 +510,12 @@ public:
     return sum;
   }
   void write(std::string fname);
-  int get_dimensionality() { return dimensionality; }
+  int get_dimensionality() {
+      if(dimensionality == 42){
+          this->_infer_dimensionality();
+      }
+      return dimensionality;
+  }
   // Constructor for a tensor of given shape and number of non-zeros, fills with
   // random values and indices
   Tensor(int size, int dimensionality, int *shape) {
@@ -499,6 +566,17 @@ public:
       dimensionality = nonzeros[0].get_coords().get_dimensionality();
     }
   }
+  std::string get_shape_string() {
+    if(dimensionality == 42){
+        this->_infer_dimensionality();
+        this->_infer_shape();
+    }
+    std::string str = "";
+    for (int i = 0; i < dimensionality; i++) {
+      str += std::to_string(shape[i]) + " ";
+    }
+    return str;
+  }
   void _infer_shape() {
     // TODO this is a mem-leak. Add a guard before allocation
     if (nonzeros.size() > 0) {
@@ -542,6 +620,7 @@ public:
         right_symbolic, left_contr, left_batch, right_contr, right_batch);
   }
 
+  //does not multiply data, just returns the coordinates
   Tensor contract(Tensor &other, CoOrdinate left_contraction,
                   CoOrdinate left_batch, CoOrdinate right_contraction,
                   CoOrdinate right_batch) {
@@ -614,6 +693,10 @@ public:
   void fill_values(Tensor<L> &left, Tensor<R> &right, CoOrdinate left_contr,
                    CoOrdinate left_batch, CoOrdinate right_contr,
                    CoOrdinate right_batch) {
+      if(this->get_nonzeros().size()>0){
+          this->_fill_values_only(left, right, left_contr, left_batch, right_contr, right_batch);
+          return;
+      }
       //TODO: refactor this above
     CoOrdinate left_idx_pos = CoOrdinate(left_batch, left_contr);
     IndexedTensor<L> left_indexed = IndexedTensor<L>(left, left_idx_pos);
@@ -671,6 +754,7 @@ public:
       }
     }
 
+    //TODO: remove this so that the next iteration can use the non-zero positions.
     if (this->get_nonzeros().size() != 0) {
       this->delete_old_values();
     }
@@ -678,6 +762,81 @@ public:
       this->get_nonzeros().push_back(NNZ<DT>(nnz.second, nnz.first));
     }
     result.clear();
+  }
+
+  //this is when the output non-zero structure is known, we're just filling in the data.
+  //ASSUMEs that the output shape goes like: (batch, left_external, right_external)
+  //throws a runtime exception if the indices on the result and left/right don't match.
+  template <class L, class R>
+  void _fill_values_only(Tensor<L> &left, Tensor<R> &right,
+                         CoOrdinate left_contr, CoOrdinate left_batch,
+                         CoOrdinate right_contr, CoOrdinate right_batch) {
+    // Implement the following pseudocode
+    //  R(b, l, r) = A(b, l, c) * B(b, r, c)
+    //  for (b, l, r) in R:
+    //   accum = 0;
+    //   for (c_A, nnz_A) in H_A[(b, l)]:
+    //     for (c_B, nnz_B) in H_B[(b, r)]:
+    //        if c_A == c_B:
+    //           accum += nnz_A * nnz_B
+    //   R(b, l, r) = accum
+    assert(this->get_nonzeros().size() != 0);
+    left._infer_dimensionality();
+    right._infer_dimensionality();
+
+    CoOrdinate all_left_pos({});
+    all_left_pos.all_positions(left.get_dimensionality());
+    CoOrdinate left_external_pos =
+        all_left_pos.remove(CoOrdinate(left_batch, left_contr));
+    CoOrdinate left_idx_pos = CoOrdinate(left_batch, left_external_pos);
+    IndexedTensor<L> left_indexed = IndexedTensor<L>(left, left_idx_pos);
+
+    CoOrdinate all_right_pos({});
+    all_right_pos.all_positions(right.get_dimensionality());
+    CoOrdinate right_external_pos =
+        all_right_pos.remove(CoOrdinate(right_batch, right_contr));
+    CoOrdinate right_idx_pos = CoOrdinate(right_batch, right_external_pos);
+    MultilevelIndexedTensor<R> right_indexed =
+        MultilevelIndexedTensor<R>(right, right_idx_pos, right_contr);
+
+    CoOrdinate output_left_idx({});
+    output_left_idx.all_positions(left_external_pos.get_dimensionality() +
+                                  left_batch.get_dimensionality());
+    CoOrdinate output_batch({});
+    output_batch.all_positions(left_batch.get_dimensionality());
+
+    for (auto &nnz : this->get_nonzeros()) {
+      auto left_entry = left_indexed.indexed_tensor.find(
+          nnz.get_coords().gather(output_left_idx));
+      auto right_firstlevel_cord =
+          CoOrdinate(nnz.get_coords().gather(output_batch),
+                     nnz.get_coords().remove(output_left_idx));
+      tsl::hopscotch_map<CoOrdinate, R> &right_inner_map =
+          right_indexed.get_map(right_firstlevel_cord);
+      if constexpr (std::is_class<DT>::value) {
+        // TODO: push this inside the NNZ type.
+        nnz.get_data().clear();
+      } else {
+        nnz.set_zero();
+      }
+      for (auto &left_ev : left_entry.value()) {
+        auto mayB_data = right_inner_map.find(left_ev.first);
+        if (mayB_data != right_inner_map.end()) {
+          if constexpr (std::is_same<L, densevec>() &&
+                        std::is_same<R, densevec>() &&
+                        std::is_same<DT, densemat>()) {
+            nnz += left_ev.second.densevec::outer(mayB_data.value());
+          } else if constexpr (std::is_same<L, densemat>() &&
+                               std::is_same<R, densemat>() &&
+                               std::is_same<DT, double>()) {
+            nnz += left_ev.second.mult_reduce(mayB_data.value());
+          } else {
+
+            nnz += left_ev.second * mayB_data.value();
+          }
+        }
+      }
+    }
   }
 
   template <class RIGHT>

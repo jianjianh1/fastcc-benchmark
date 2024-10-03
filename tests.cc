@@ -755,7 +755,84 @@ void dense_opcount(){
     assert(shape == ground_truth);
 }
 
+void fill_values_only_nobatch_scalar() {
+    // res(i, e_mu, j, f_mu) = teov(i, e_mu, k) * teov(j, f_mu, k)
+    Tensor<double> teov("./test_data/TEov.tns", true);
+    auto left_c = CoOrdinate(std::vector<int>({2}));
+    auto left_b = CoOrdinate(std::vector<int>({}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({}));
+    std::chrono::high_resolution_clock::time_point t1 =
+        std::chrono::high_resolution_clock::now();
+    Tensor<double> res =
+        teov.multiply<double>(teov, left_c, left_b, right_c, right_b);
+    std::chrono::high_resolution_clock::time_point t2 =
+        std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for multiply "
+              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+                     .count()
+              << std::endl;
+    Tensor<double> res2 =
+        teov.multiply<double>(teov, left_c, left_b, right_c, right_b);
+    res2._infer_dimensionality();
+    t1 = std::chrono::high_resolution_clock::now();
+    res2._fill_values_only(teov, teov, left_c, left_b, right_c, right_b);
+    t2 = std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for fill_values_only doubles "
+              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+                     .count()
+              << std::endl;
+    CoOrdinate result_idx({});
+    res._infer_dimensionality();
+    result_idx.all_positions(res.get_dimensionality());
+    assert(IndexedTensor<double>(res, result_idx) ==
+           IndexedTensor<double>(res2, result_idx));
+    assert(IndexedTensor<double>(res2, result_idx) ==
+           IndexedTensor<double>(res, result_idx));
+}
+
+void fill_values_only() {
+    // res(i, k, j, e_ij) = teov(i, e_mu, k) * dlmop(i, j, e_mu, e_ij)
+    Tensor<float> teov("./test_data/TEov.tns", true);
+    Tensor<densevec> dlmop("./test_data/d_LMOP.tns", true);
+    auto left_c = CoOrdinate(std::vector<int>({1}));
+    auto left_b = CoOrdinate(std::vector<int>({0}));
+    auto right_c = CoOrdinate(std::vector<int>({2}));
+    auto right_b = CoOrdinate(std::vector<int>({0}));
+    std::chrono::high_resolution_clock::time_point t1 =
+        std::chrono::high_resolution_clock::now();
+    Tensor<densevec> res =
+        teov.multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
+    std::chrono::high_resolution_clock::time_point t2 =
+        std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for multiply "
+              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+                     .count()
+              << std::endl;
+    Tensor<densevec> res2 =
+        teov.multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
+    res2._infer_dimensionality();
+    t1 = std::chrono::high_resolution_clock::now();
+    res2._fill_values_only(teov, dlmop, left_c, left_b, right_c, right_b);
+    t2 = std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for fill_values_only densevec "
+              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+                     .count()
+              << std::endl;
+    CoOrdinate result_idx({});
+    res._infer_dimensionality();
+    result_idx.all_positions(res.get_dimensionality());
+    assert(IndexedTensor<densevec>(res, result_idx) ==
+           IndexedTensor<densevec>(res2, result_idx));
+    assert(IndexedTensor<densevec>(res2, result_idx) ==
+           IndexedTensor<densevec>(res, result_idx));
+}
+
 int main() {
+    fill_values_only();
+    std::cout<<"Passed fill_values_only"<<std::endl;
+    fill_values_only_nobatch_scalar();
+    std::cout<<"Passed fill_values_only_nobatch_scalar"<<std::endl;
     symtensor_inf_shape();
     std::cout << "Passed symtensor_inf_shape" << std::endl;
     dense_opcount();
