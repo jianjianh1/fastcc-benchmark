@@ -92,8 +92,11 @@ public:
     std::cout << "Running taskflow" << std::endl;
     int iter = 0;
     while (!hasConverged()) {
+        std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
       run();
+      std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+      std::cout << "Time taken for the iteration: " << std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count() << " milliseconds" << std::endl;
       std::cout << "Iteration " << iter++ << std::endl;
       // updateDoubles(doubles_result);
     }
