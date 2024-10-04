@@ -37,13 +37,14 @@ public:
   // vec * vec -> inner dot, we don't ever need  element-wise
   densevec operator*(double scalar) const {
     double *res = new double[size];
+    memset(res, 0, sizeof(double) * size);
     cblas_daxpy(size, scalar, values, 1, res, 1);
-    // std::vector<double> res_data;
-    // for (int i = 0; i < size; i++) {
-    //   res_data.push_back(values[i] * scalar);
-    // }
-    // densevec result = densevec(res_data);
-    // return result;
+     //std::vector<double> res_data;
+     //for (int i = 0; i < size; i++) {
+     //  res_data.push_back(values[i] * scalar);
+     //}
+     //densevec result = densevec(res_data);
+     //return result;
     densevec result = densevec(res, size);
     return result;
   }
@@ -87,7 +88,7 @@ public:
 
   void free() { delete[] values; }
   bool operator==(densevec other) const {
-#define FP_EQ(a, b) (fabs((a) - (b)) <= 5e-3)
+#define FP_EQ(a, b) (fabs((a) - (b)) <= 5e-4)
     if (size != other.size) {
       std::cerr << "Operator== on densevec: size of vectors do not match"
                 << std::endl;
@@ -175,6 +176,7 @@ public:
   //
   densemat operator*(double scalar) const {
     double *res = new double[size * size];
+    memset(res, 0, sizeof(double) * size * size);
     cblas_daxpy(size * size, scalar, values, 1, res, 1);
     densemat result = densemat(res, size);
     // std::vector<double> res_data;
@@ -194,6 +196,7 @@ public:
     }
 
     double *res = new double[size * size];
+    memset(res, 0, sizeof(double) * size * size);
     cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, size, size,                                                                                                size, 1.0, values, size, other.values, size, 0.0, res,                                                                                       
                 size);
     densemat result = densemat(res, size);
@@ -239,6 +242,7 @@ public:
       exit(1);
     }
     double *res = new double[size];
+    memset(res, 0, sizeof(double) * size);
     cblas_dgemv(CblasRowMajor, CblasNoTrans, size, size, 1.0, values, size,
                 other.getdata(), 1, 0.0, res, 1);
     densevec result = densevec(res, size);
@@ -265,6 +269,7 @@ densemat densevec::outer(densevec other) const {
   // }
   // densemat result = densemat(res_data);
   // return result;
+  memset(res, 0, sizeof(double) * size * other.getsize());
   cblas_dger(CblasRowMajor, size, other.getsize(), 1.0, values, 1, other.values,
              1, res, other.getsize());
   return densemat(res, size);

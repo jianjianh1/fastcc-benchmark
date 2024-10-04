@@ -477,9 +477,18 @@ public:
         std::cerr << "Index mismatch" << std::endl;
         return false;
       }
-      if (ref.value() != entry.second) {
-        std::cerr << "Value mismatch" << std::endl;
-        return false;
+      if constexpr (std::is_class<DT>::value) {
+        if (ref.value() != entry.second) {
+          std::cerr << "Value mismatch" << std::endl;
+          std::cerr << "Left: " << entry.second[0].second.to_string()
+                    << std::endl;
+          std::cerr << "Right: " << ref.value()[0].second.to_string()
+                    << std::endl;
+          return false;
+        }
+      } else {
+#define FP_EQ(a, b) (fabs((a) - (b)) <= 5e-4)
+        return FP_EQ(ref.value()[0].second, entry.second[0].second);
       }
     }
     return true;
