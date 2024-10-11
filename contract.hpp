@@ -1,6 +1,7 @@
 #ifndef CONTRACT_HPP
 #define CONTRACT_HPP
 #include "types.hpp"
+#include "coordinate.hpp"
 #include <algorithm>
 #include <boost/functional/hash.hpp>
 #include <iostream>
@@ -19,9 +20,10 @@ template <typename T> static std::size_t hasharray(int size, T *arr) {
 }
 
 class CoOrdinate {
-#define BITWIDTH (256)
+#define BITWIDTH (128)
   std::vector<int> coords;
   std::bitset<BITWIDTH> mybits;
+  std::vector<int> max_indices;
 
 public:
   using iterator = typename std::vector<int>::iterator;
@@ -48,18 +50,34 @@ public:
       coords.push_back(i);
     }
   }
-  CoOrdinate(std::vector<int> data) {
+  CoOrdinate(std::vector<int> const & data, std::vector<int> shape=std::vector<int>() ){
     this->coords = data;
     for (auto &cord : this->coords) {
       mybits <<= (sizeof(int)*8);
       mybits |= std::bitset<BITWIDTH>(cord);
     }
+    this->max_indices = shape;
   }
   std::string to_string() const;
   void write(std::string filename) const;
+  BoundedCoordinate get_bounded(int *bounds) const {
+    return BoundedCoordinate((int*)coords.data(), bounds, coords.size());
+  }
 
   // This is going to concatenate two coordinates
-  CoOrdinate(CoOrdinate left, CoOrdinate right) {
+  CoOrdinate(CoOrdinate const &left, CoOrdinate const &right) {
+      //if(left.get_shape().size() == 0 || right.get_shape().size() == 0){
+      //    std::cerr<<"Need to set shape before concatenating coordinates"<<std::endl;
+      //    assert(false);
+      //} else {
+          //this->max_indices.reserve(left.get_dimensionality() + right.get_dimensionality());
+          if(left.get_shape().size() > 0){
+              this->max_indices.insert(this->max_indices.end(), left.get_shape().begin(), left.get_shape().end());
+          }
+          if(right.get_shape().size() > 0){
+              this->max_indices.insert(this->max_indices.end(), right.get_shape().begin(), right.get_shape().end());
+          }
+      //}
       coords.reserve(left.get_dimensionality() + right.get_dimensionality());
       //memcpy(coords.data(), left.coords.data(), left.get_dimensionality() * sizeof(int));
       //memcpy(coords.data() + left.get_dimensionality(), right.coords.data(), right.get_dimensionality() * sizeof(int));
@@ -71,7 +89,22 @@ public:
     }
   }
 
-  CoOrdinate(CoOrdinate left, CoOrdinate mid, CoOrdinate right){
+  CoOrdinate(CoOrdinate const &left, CoOrdinate const &mid, CoOrdinate const &right){
+      //if(left.get_shape().size() == 0 || mid.get_shape().size() == 0 || right.get_shape().size() == 0){
+      //    std::cerr<<"Need to set shape before concatenating coordinates"<<std::endl;
+      //    assert(false);
+      //} else {
+          //this->max_indices.reserve(left.get_dimensionality() + mid.get_dimensionality() + right.get_dimensionality());
+          if(left.get_shape().size() > 0){
+              this->max_indices.insert(this->max_indices.end(), left.get_shape().begin(), left.get_shape().end());
+          }
+          if(mid.get_shape().size() > 0){
+              this->max_indices.insert(this->max_indices.end(), mid.get_shape().begin(), mid.get_shape().end());
+          }
+          if(right.get_shape().size() > 0){
+              this->max_indices.insert(this->max_indices.end(), right.get_shape().begin(), right.get_shape().end());
+          }
+      //}
       coords.reserve(left.get_dimensionality() + mid.get_dimensionality() + right.get_dimensionality());
       coords.insert(coords.end(), left.coords.begin(), left.coords.end());
       coords.insert(coords.end(), mid.coords.begin(), mid.coords.end());
@@ -82,7 +115,7 @@ public:
       }
   }
 
-  CoOrdinate gather(CoOrdinate positions) const{
+  CoOrdinate gather(CoOrdinate const &positions) const{
     // TODO remove before flight
     if (positions.get_dimensionality() > this->get_dimensionality()) {
       std::cout << "Error, trying to gather more dimensions than there are in "
@@ -104,24 +137,42 @@ public:
       }
     }
     std::vector<int> gathered;
+    std::vector<int> gathered_shape;
+    std::vector<int> og_shape = this->get_shape();
+    if (og_shape.size() > 0) {
+        for(auto &cord : positions){
+            gathered_shape.push_back(og_shape[cord]);
+        }
+    }
     for (int i = 0; i < positions.get_dimensionality(); i++) {
       gathered.push_back(coords[positions.get_index(i)]);
     }
-    return gathered;
+    return CoOrdinate(gathered, gathered_shape);
   }
 
-  CoOrdinate remove(CoOrdinate positions) {
+  CoOrdinate remove(CoOrdinate const &positions) {
     std::vector<int> removed;
+    std::vector<int> removed_shape;
     for (int i = 0; i < this->get_dimensionality(); i++) {
       if (std::find(positions.begin(), positions.end(), i) == positions.end()) {
         removed.push_back(coords[i]);
       }
     }
-    return removed;
+    if (max_indices.size() > 0) {
+      for (int i = 0; i < this->get_dimensionality(); i++) {
+        if (std::find(positions.begin(), positions.end(), i) ==
+            positions.end()) {
+          removed_shape.push_back(max_indices[i]);
+        }
+      }
+    }
+    return CoOrdinate(removed, removed_shape);
   }
 
   int get_index(int dim) const { return coords[dim]; }
   int get_dimensionality() const { return coords.size(); }
+  void set_shape(std::vector<int> shape) { max_indices = shape; }
+  const std::vector<int>& get_shape() const { return max_indices;}
   std::bitset<BITWIDTH> get_bits() const { return mybits; }
   bool operator==(const CoOrdinate &other) const {
     return mybits == other.mybits;
@@ -140,13 +191,21 @@ public:
 
 template <> struct std::hash<CoOrdinate> {
   std::size_t operator()(const CoOrdinate &c) const {
-    //std::string catted_cord = "";
-    //for (auto &&coord : c) {
-    //  catted_cord += std::to_string(coord);
-    //  catted_cord += ",";
-    //}
-    //return std::hash<std::string>{}(catted_cord);
-    return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits());
+      if(c.get_shape().size() == 0){
+          std::cerr<<"Need to set shape before hashing coordinate"<<std::endl;
+          assert(false);
+      }
+
+      size_t linearlized_cord = 0;
+      for(int i = 0; i < c.get_dimensionality(); i++){
+          linearlized_cord += c.get_index(i);
+          if(i != c.get_dimensionality() - 1){
+              linearlized_cord *= c.get_shape()[i+1];
+          }
+      }
+      return linearlized_cord;
+
+    //return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits());
   }
 };
 
@@ -191,12 +250,19 @@ public:
     }
   }
 
-  CoOrdinate get_coords() { return coords; }
+  CoOrdinate& get_coords() { return coords; }
 
   // Constructor for a given value and coordinates
   NNZ(DT data, int dimensionality, int *coords)
       : data(data), coords(dimensionality, coords) {}
   NNZ(DT data, CoOrdinate coords) : data(data), coords(coords) {}
+  NNZ(DT data, BoundedCoordinate bc): data(data){
+      std::vector<int> vecords;
+      for(int i = 0; i < bc.get_dimensionality(); i++){
+          vecords.push_back(bc.get_coordinate(i));
+      }
+      coords = CoOrdinate(vecords);
+  }
   bool operator==(const NNZ &other) const {
     return data == other.data && coords == other.coords;
   }
@@ -430,6 +496,7 @@ public:
   hashmap_vals indexed_tensor;
 
   IndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
+      base_tensor._infer_shape();
     for (auto &nnz : base_tensor) {
       auto it = indexed_tensor.find(nnz.get_coords().gather(index_coords));
       if (it != indexed_tensor.end()) {
@@ -586,6 +653,13 @@ public:
     }
     return str;
   }
+  int* get_shape_ref() {
+    if(dimensionality == 42){
+        this->_infer_dimensionality();
+        this->_infer_shape();
+    }
+    return shape;
+  }
   void _infer_shape() {
     // TODO this is a mem-leak. Add a guard before allocation
     if (nonzeros.size() > 0) {
@@ -600,6 +674,10 @@ public:
             shape[i] = coords.get_index(i);
           }
         }
+      }
+      std::vector<int> shape_vec(shape, shape + dimensionality);
+      for(auto &nnz:nonzeros){
+          nnz.get_coords().set_shape(shape_vec);
       }
     }
   }
@@ -648,11 +726,13 @@ public:
     IndexedTensor<RIGHT> right_indexed =
         IndexedTensor<RIGHT>(other, right_idx_pos);
 
-    tsl::hopscotch_map<CoOrdinate, RES> result;
+    tsl::hopscotch_map<BoundedCoordinate, RES> result;
+    this->_infer_shape();
+    other._infer_shape();
 
     std::vector<int> batch_pos_afterhash(left_batch.get_dimensionality());
     std::iota(batch_pos_afterhash.begin(), batch_pos_afterhash.end(), 0);
-    CoOrdinate idx_batch_pos = CoOrdinate(batch_pos_afterhash);
+    BoundedPosition batchpos = BoundedPosition(batch_pos_afterhash);
 
     for (auto &left_entry : left_indexed.indexed_tensor) {
       auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
@@ -661,14 +741,16 @@ public:
              left_entry.second) { // loop over (e_l, nnz_l): external left, nnz
                                   // at that external left.
           for (auto &right_ev : right_entry->second) {
-            CoOrdinate batch_coords = left_entry.first.gather(
-                batch_pos_afterhash); // assumes that batch positions are leftmost, so
+              BoundedCoordinate left_bc = left_entry.first.get_bounded(shape);
+        
+            BoundedCoordinate batch_coords = left_bc.gather(batchpos); // assumes that batch positions are leftmost, so
                              // they will work with a left subset.
-            //CoOrdinate external_coords = CoOrdinate(
-            //    left_ev.first,
-            //    right_ev.first); // convention to put left followed by right
-            CoOrdinate output_coords =
-                CoOrdinate(batch_coords, left_ev.first, right_ev.first);
+            BoundedCoordinate left_external = left_ev.first.get_bounded(shape);
+            BoundedCoordinate right_external = right_ev.first.get_bounded(other.get_shape_ref());
+
+            //CoOrdinate output_coords =
+            //    CoOrdinate(batch_coords, left_ev.first, right_ev.first);
+            BoundedCoordinate output_coords = BoundedCoordinate(batch_coords, left_external, right_external);
             RES outp;
             if constexpr (std::is_same<DT, densevec>() &&
                           std::is_same<RIGHT, densevec>() &&
