@@ -488,28 +488,38 @@ public:
     return indexed_tensor[first_level];
   }
 };
+
+
 template <class DT> class IndexedTensor {
   using hashmap_vals =
-      tsl::hopscotch_map<CoOrdinate, std::vector<std::pair<CoOrdinate, DT>>>;
+      tsl::hopscotch_map<BoundedCoordinate, std::vector<std::pair<BoundedCoordinate, DT>>>;
 
 public:
   hashmap_vals indexed_tensor;
+  int *shape = nullptr;
 
   IndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
-      base_tensor._infer_shape();
+    base_tensor._infer_shape();
+    shape = base_tensor.get_shape_ref();
     for (auto &nnz : base_tensor) {
-      auto it = indexed_tensor.find(nnz.get_coords().gather(index_coords));
+      BoundedCoordinate index = nnz.get_coords()
+                                    .gather(index_coords)
+                                    .get_bounded(base_tensor.get_shape_ref());
+      BoundedCoordinate remaining =
+          nnz.get_coords()
+              .remove(index_coords)
+              .get_bounded(base_tensor.get_shape_ref());
+      auto it = indexed_tensor.find(index);
       if (it != indexed_tensor.end()) {
-        it.value().push_back(
-            {nnz.get_coords().remove(index_coords), nnz.get_data()});
+        it.value().push_back({remaining, nnz.get_data()});
       } else {
-        indexed_tensor[nnz.get_coords().gather(index_coords)] = {
-            {nnz.get_coords().remove(index_coords), nnz.get_data()}};
+        indexed_tensor[index] = {{remaining, nnz.get_data()}};
       }
     }
   }
-  DT get_valat(CoOrdinate index_coords, CoOrdinate remaining_coords) {
-    auto it = indexed_tensor.find(index_coords);
+  DT get_valat(CoOrdinate index_coords, CoOrdinate rem_coords) {
+      BoundedCoordinate remaining_coords = rem_coords.get_bounded(shape);
+    auto it = indexed_tensor.find(index_coords.get_bounded(shape));
     if (it != indexed_tensor.end()) {
       for (auto &pair : it.value()) {
         if (pair.first == remaining_coords) {
@@ -716,23 +726,30 @@ public:
     return Tensor(output_coords.begin(), output_coords.end());
   }
 
+  // Needs shape for left and right tensors
   template <class RES, class RIGHT>
   Tensor<RES> multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
                        CoOrdinate left_batch, CoOrdinate right_contr,
                        CoOrdinate right_batch) {
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
     CoOrdinate left_idx_pos = CoOrdinate(left_batch, left_contr);
     IndexedTensor<DT> left_indexed = IndexedTensor<DT>(*this, left_idx_pos);
     CoOrdinate right_idx_pos = CoOrdinate(right_batch, right_contr);
     IndexedTensor<RIGHT> right_indexed =
         IndexedTensor<RIGHT>(other, right_idx_pos);
 
-    tsl::hopscotch_map<BoundedCoordinate, RES> result;
-    this->_infer_shape();
-    other._infer_shape();
+    tsl::hopscotch_map<OutputCoordinate, RES, std::hash<OutputCoordinate>, std::equal_to<OutputCoordinate>, std::allocator<std::pair<OutputCoordinate, RES>>, (unsigned int)62, (bool)0, tsl::hh::prime_growth_policy> result;
 
+    //tsl::hopscotch_map<OutputCoordinate, RES, ..., GrowthPolicy=tsl::hh::prime_growth_policy> result;
     std::vector<int> batch_pos_afterhash(left_batch.get_dimensionality());
     std::iota(batch_pos_afterhash.begin(), batch_pos_afterhash.end(), 0);
     BoundedPosition batchpos = BoundedPosition(batch_pos_afterhash);
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
 
     for (auto &left_entry : left_indexed.indexed_tensor) {
       auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
@@ -741,25 +758,29 @@ public:
              left_entry.second) { // loop over (e_l, nnz_l): external left, nnz
                                   // at that external left.
           for (auto &right_ev : right_entry->second) {
-              BoundedCoordinate left_bc = left_entry.first.get_bounded(shape);
-        
-            BoundedCoordinate batch_coords = left_bc.gather(batchpos); // assumes that batch positions are leftmost, so
-                             // they will work with a left subset.
-            BoundedCoordinate left_external = left_ev.first.get_bounded(shape);
-            BoundedCoordinate right_external = right_ev.first.get_bounded(other.get_shape_ref());
+            BoundedCoordinate left_bc = left_entry.first;
 
-            //CoOrdinate output_coords =
-            //    CoOrdinate(batch_coords, left_ev.first, right_ev.first);
-            BoundedCoordinate output_coords = BoundedCoordinate(batch_coords, left_external, right_external);
+            BoundedCoordinate batch_coords = left_bc.gather(
+                batchpos); // assumes that batch positions are leftmost, so
+                           // they will work with a left subset.
+            BoundedCoordinate left_external = left_ev.first;
+            BoundedCoordinate right_external = right_ev.first;
+
+            // CoOrdinate output_coords =
+            //     CoOrdinate(batch_coords, left_ev.first, right_ev.first);
+            OutputCoordinate output_coords =
+                OutputCoordinate(batch_coords, left_external, right_external);
             RES outp;
             if constexpr (std::is_same<DT, densevec>() &&
                           std::is_same<RIGHT, densevec>() &&
                           std::is_same<RES, densemat>()) {
               outp = left_ev.second.densevec::outer(right_ev.second);
-            } else if constexpr(std::is_same<DT, densemat>() && std::is_same<RIGHT, densemat>() && std::is_same<RES, double>()){
-                outp = left_ev.second.mult_reduce(right_ev.second);
+            } else if constexpr (std::is_same<DT, densemat>() &&
+                                 std::is_same<RIGHT, densemat>() &&
+                                 std::is_same<RES, double>()) {
+              outp = left_ev.second.mult_reduce(right_ev.second);
 
-            }else {
+            } else {
               outp = left_ev.second * right_ev.second;
             }
             auto result_ref = result.find(output_coords);
@@ -772,161 +793,36 @@ public:
         }
       }
     }
+    std::cout<<"Overflow size "<<result.overflow_size()<<std::endl;
+    start = std::chrono::high_resolution_clock::now();
     Tensor<RES> result_tensor(result.size());
 
     for (auto nnz : result) {
-      result_tensor.get_nonzeros().push_back(NNZ<RES>(nnz.second, nnz.first));
+      result_tensor.get_nonzeros().push_back(NNZ<RES>(nnz.second, nnz.first.merge()));
     }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to writeback: " << time_taken << std::endl;
     return result_tensor;
   }
 
+  //Very hacky in-place multiply, need to redo if it is really needed.
   template <class L, class R>
   void fill_values(Tensor<L> &left, Tensor<R> &right, CoOrdinate left_contr,
                    CoOrdinate left_batch, CoOrdinate right_contr,
                    CoOrdinate right_batch) {
-      if(this->get_nonzeros().size()>0){
-          this->_fill_values_only(left, right, left_contr, left_batch, right_contr, right_batch);
-          return;
-      }
-      //TODO: refactor this above
-    CoOrdinate left_idx_pos = CoOrdinate(left_batch, left_contr);
-    IndexedTensor<L> left_indexed = IndexedTensor<L>(left, left_idx_pos);
-    CoOrdinate right_idx_pos = CoOrdinate(right_batch, right_contr);
-    IndexedTensor<R> right_indexed =
-        IndexedTensor<R>(right, right_idx_pos);
+    Tensor<DT> result = this->multiply<DT>(left, left_contr, left_batch, right_contr,
+                                       right_batch);
 
-    tsl::hopscotch_map<CoOrdinate, DT> result;
-
-    std::vector<int> batch_pos_afterhash(left_batch.get_dimensionality());
-    std::iota(batch_pos_afterhash.begin(), batch_pos_afterhash.end(), 0);
-    CoOrdinate idx_batch_pos = CoOrdinate(batch_pos_afterhash);
-
-    for (auto &left_entry : left_indexed.indexed_tensor) {
-      auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
-      if (right_entry != right_indexed.indexed_tensor.end()) {
-        for (auto &left_ev :
-             left_entry.second) { // loop over (e_l, nnz_l): external left, nnz
-                                  // at that external left.
-          for (auto &right_ev : right_entry->second) {
-            CoOrdinate batch_coords = left_entry.first.gather(
-                batch_pos_afterhash); // assumes that batch positions are leftmost, so
-                             // they will work with a left subset.
-            //CoOrdinate external_coords = CoOrdinate(
-            //    left_ev.first,
-            //    right_ev.first); // convention to put left followed by right
-            CoOrdinate output_coords =
-                CoOrdinate(batch_coords, left_ev.first, right_ev.first);
-            DT outp;
-            if constexpr (std::is_same<L, densevec>() &&
-                          std::is_same<R, densevec>() &&
-                          std::is_same<DT, densemat>()) {
-              outp = left_ev.second.densevec::outer(right_ev.second);
-            } else if constexpr (std::is_same<L, densemat>() &&
-                                 std::is_same<R, densemat>() &&
-                                 std::is_same<DT, double>()) {
-              outp = left_ev.second.mult_reduce(right_ev.second);
-
-            }
-
-            else {
-              outp = left_ev.second * right_ev.second;
-            }
-            auto result_ref = result.find(output_coords);
-            if (result_ref != result.end()) {
-              result_ref.value() += outp;
-              if constexpr (std::is_same<DT, densevec>() || std::is_same<DT, densemat>()) {
-                outp.free();
-              }
-            } else {
-              result[output_coords] = outp;
-            }
-          }
-        }
-      }
-    }
 
     //TODO: remove this so that the next iteration can use the non-zero positions.
     if (this->get_nonzeros().size() != 0) {
       this->delete_old_values();
     }
     for (auto &nnz : result) {
-      this->get_nonzeros().push_back(NNZ<DT>(nnz.second, nnz.first));
-    }
-    result.clear();
-  }
-
-  //this is when the output non-zero structure is known, we're just filling in the data.
-  //ASSUMEs that the output shape goes like: (batch, left_external, right_external)
-  //throws a runtime exception if the indices on the result and left/right don't match.
-  template <class L, class R>
-  void _fill_values_only(Tensor<L> &left, Tensor<R> &right,
-                         CoOrdinate left_contr, CoOrdinate left_batch,
-                         CoOrdinate right_contr, CoOrdinate right_batch) {
-    // Implement the following pseudocode
-    //  R(b, l, r) = A(b, l, c) * B(b, r, c)
-    //  for (b, l, r) in R:
-    //   accum = 0;
-    //   for (c_A, nnz_A) in H_A[(b, l)]:
-    //     for (c_B, nnz_B) in H_B[(b, r)]:
-    //        if c_A == c_B:
-    //           accum += nnz_A * nnz_B
-    //   R(b, l, r) = accum
-    assert(this->get_nonzeros().size() != 0);
-    left._infer_dimensionality();
-    right._infer_dimensionality();
-
-    CoOrdinate all_left_pos({});
-    all_left_pos.all_positions(left.get_dimensionality());
-    CoOrdinate left_external_pos =
-        all_left_pos.remove(CoOrdinate(left_batch, left_contr));
-    CoOrdinate left_idx_pos = CoOrdinate(left_batch, left_external_pos);
-    IndexedTensor<L> left_indexed = IndexedTensor<L>(left, left_idx_pos);
-
-    CoOrdinate all_right_pos({});
-    all_right_pos.all_positions(right.get_dimensionality());
-    CoOrdinate right_external_pos =
-        all_right_pos.remove(CoOrdinate(right_batch, right_contr));
-    CoOrdinate right_idx_pos = CoOrdinate(right_batch, right_external_pos);
-    MultilevelIndexedTensor<R> right_indexed =
-        MultilevelIndexedTensor<R>(right, right_idx_pos, right_contr);
-
-    CoOrdinate output_left_idx({});
-    output_left_idx.all_positions(left_external_pos.get_dimensionality() +
-                                  left_batch.get_dimensionality());
-    CoOrdinate output_batch({});
-    output_batch.all_positions(left_batch.get_dimensionality());
-
-    for (auto &nnz : this->get_nonzeros()) {
-      auto left_entry = left_indexed.indexed_tensor.find(
-          nnz.get_coords().gather(output_left_idx));
-      auto right_firstlevel_cord =
-          CoOrdinate(nnz.get_coords().gather(output_batch),
-                     nnz.get_coords().remove(output_left_idx));
-      tsl::hopscotch_map<CoOrdinate, R> &right_inner_map =
-          right_indexed.get_map(right_firstlevel_cord);
-      if constexpr (std::is_class<DT>::value) {
-        // TODO: push this inside the NNZ type.
-        nnz.get_data().clear();
-      } else {
-        nnz.set_zero();
-      }
-      for (auto &left_ev : left_entry.value()) {
-        auto mayB_data = right_inner_map.find(left_ev.first);
-        if (mayB_data != right_inner_map.end()) {
-          if constexpr (std::is_same<L, densevec>() &&
-                        std::is_same<R, densevec>() &&
-                        std::is_same<DT, densemat>()) {
-            nnz += left_ev.second.densevec::outer(mayB_data.value());
-          } else if constexpr (std::is_same<L, densemat>() &&
-                               std::is_same<R, densemat>() &&
-                               std::is_same<DT, double>()) {
-            nnz += left_ev.second.mult_reduce(mayB_data.value());
-          } else {
-
-            nnz += left_ev.second * mayB_data.value();
-          }
-        }
-      }
+      this->get_nonzeros().push_back(nnz);
     }
   }
 

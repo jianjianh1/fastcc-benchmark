@@ -4,9 +4,12 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <boost/container_hash/hash.hpp>
+#include <cstring>
 #include <variant>
 #include <vector>
 #define DIMENSIONALITY 6
+#define GOOD_PRIME 3145739
 
 class BoundedPosition {
   int dimensions = 0;
@@ -69,6 +72,7 @@ public:
   }
   BoundedCoordinate(BoundedCoordinate &left, BoundedCoordinate &mid,
                     BoundedCoordinate &right) {
+
     for (int i = 0; i < left.get_dimensionality(); i++) {
       this->coords[i] = left.coords[i];
       this->bounds[i] = left.bounds[i];
@@ -97,6 +101,23 @@ public:
   int get_bound(int position) const {
     assert(position < dimensions);
     return bounds[position];
+  }
+  size_t get_linear_bound() const {
+    size_t result = 1;
+    for (int i = 0; i < this->get_dimensionality(); i++) {
+      result *= this->get_bound(i);
+    }
+    return result;
+  }
+  size_t get_linearization() const {
+    size_t linearlized_cord = 0;
+    for (int i = 0; i < this->get_dimensionality(); i++) {
+      linearlized_cord += this->get_coordinate(i);
+      if (i != this->get_dimensionality() - 1) {
+        linearlized_cord *= this->get_bound(i + 1);
+      }
+    }
+    return linearlized_cord;
   }
   BoundedCoordinate gather(BoundedPosition &other) {
     int res_cords[DIMENSIONALITY];
@@ -142,14 +163,72 @@ public:
 };
 template <> struct std::hash<BoundedCoordinate> {
   std::size_t operator()(const BoundedCoordinate &c) const {
-    size_t linearlized_cord = 0;
-    for (int i = 0; i < c.get_dimensionality(); i++) {
-      linearlized_cord += c.get_coordinate(i);
-      if (i != c.get_dimensionality() - 1) {
-        linearlized_cord *= c.get_bound(i + 1);
-      }
-    }
-    return linearlized_cord;
+    return c.get_linearization();
+  }
+};
+
+class OutputCoordinate {
+  BoundedCoordinate batch, left_external, right_external;
+
+public:
+  OutputCoordinate(BoundedCoordinate b, BoundedCoordinate l,
+                   BoundedCoordinate r)
+      : batch(b), left_external(l), right_external(r) {}
+  bool operator==(const OutputCoordinate &other) const {
+    return batch == other.batch && left_external == other.left_external &&
+           right_external == other.right_external;
+  }
+  BoundedCoordinate merge() {
+    return BoundedCoordinate(batch, left_external, right_external);
+  }
+  const BoundedCoordinate &get_batch() const { return batch; }
+  const BoundedCoordinate &get_left() const { return left_external; }
+  const BoundedCoordinate &get_right() const { return right_external; }
+  size_t get_linearization() const {
+    return (batch.get_linearization() * (left_external.get_linear_bound() *
+                                         right_external.get_linear_bound()) +
+            left_external.get_linearization() *
+                right_external.get_linear_bound() +
+            right_external.get_linearization());
+  }
+  size_t get_min_hash() const {
+    size_t batch_bound = batch.get_linear_bound();
+    size_t left_bound = left_external.get_linear_bound();
+    size_t right_bound = right_external.get_linear_bound();
+    if (batch_bound >= left_bound && batch_bound >= right_bound)
+      return std::hash<BoundedCoordinate>()(batch);
+    if (left_bound >= batch_bound && left_bound >= right_bound)
+      return std::hash<BoundedCoordinate>()(left_external);
+    if (right_bound >= left_bound && right_bound >= batch_bound)
+      return std::hash<BoundedCoordinate>()(right_external);
+    else
+        assert(false);
+  }
+  // int get_dimensionality() const {
+  //     return batch.get_dimensionality() + left_external.get_dimensionality()
+  //     + right_external.get_dimensionality();
+  // }
+};
+
+template <> struct std::hash<OutputCoordinate> {
+  std::size_t operator()(const OutputCoordinate &c) const {
+    //size_t result = 0;
+    //boost::hash_combine(result,
+    //std::hash<BoundedCoordinate>()(c.get_batch()));
+    //boost::hash_combine(result,
+    //std::hash<BoundedCoordinate>()(c.get_left()));
+    //boost::hash_combine(result,
+    //std::hash<BoundedCoordinate>()(c.get_right()));
+    //return result;
+    return c.get_linearization();
+    //return c.get_min_hash();
+    // size_t linearlized_cord = 0;
+    // for (int i = 0; i < c.get_dimensionality(); i++) {
+    //   linearlized_cord += c.get_coordinate(i);
+    //   if (i != c.get_dimensionality() - 1) {
+    //     linearlized_cord *= c.get_bound(i + 1);
+    //   }
+    // }
   }
 };
 
