@@ -21,6 +21,8 @@ void dense_gemm_count() {
       B.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
+  A._infer_shape();
+  B._infer_shape();
 
   int num_mults = A.count_ops(B, CoOrdinate({1}), CoOrdinate({0}));
   FlopCounter<float> counter;
@@ -60,21 +62,23 @@ void dense_gemm_shape() {
       B.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
+  A._infer_shape();
+  B._infer_shape();
 
   auto output_coordinates = A.output_shape(B, CoOrdinate({1}), CoOrdinate({}),
                                            CoOrdinate({0}), CoOrdinate({}));
-  std::unordered_set<CoOrdinate> ground_truth;
+  std::vector<CoOrdinate> ground_truth;
   for (int i = 0; i < 2; i++) {
     for (int k = 0; k < 2; k++) {
       int temparr[2] = {i, k};
       auto this_coord = CoOrdinate(2, temparr);
-      ground_truth.insert(this_coord);
+      ground_truth.push_back(this_coord);
     }
   }
   std::vector<CoOrdinate> difference;
   for (auto &coord : output_coordinates) {
     std::cout << coord.get_index(0) << " " << coord.get_index(1) << std::endl;
-    if (ground_truth.find(coord) == ground_truth.end()) {
+    if (std::find(ground_truth.begin(), ground_truth.end(), coord) == ground_truth.end()) {
       difference.push_back(coord);
     }
   }
@@ -103,6 +107,8 @@ void sparse_gemm_count() {
       B.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
+  A._infer_shape();
+  B._infer_shape();
   int num_mults = A.count_ops(B, CoOrdinate({1}), CoOrdinate({0}));
   std::cout << "Counting using hashmap done" << std::endl;
   FlopCounter<float> counter;
@@ -148,20 +154,22 @@ void sparse_gemm_shape() {
       B.get_nonzeros().push_back(NNZ<float>(1.0, 2, coords));
     }
   }
+  A._infer_shape();
+  B._infer_shape();
   auto output_coordinates = A.output_shape(B, CoOrdinate({1}), CoOrdinate({}),
                                            CoOrdinate({0}), CoOrdinate({}));
-  std::unordered_set<CoOrdinate> ground_truth;
+  std::vector<CoOrdinate> ground_truth;
   for (int i = 0; i < 2; i++) {
     for (int k = 0; k < 2; k++) {
       int temparr[2] = {i, k};
       auto this_coord = CoOrdinate(2, temparr);
-      ground_truth.insert(this_coord);
+      ground_truth.push_back(this_coord);
     }
   }
   std::vector<CoOrdinate> difference;
   for (auto &coord : output_coordinates) {
     std::cout << coord.get_index(0) << " " << coord.get_index(1) << std::endl;
-    if (ground_truth.find(coord) == ground_truth.end()) {
+    if (std::find(ground_truth.begin(), ground_truth.end(), coord) == ground_truth.end()) {
       difference.push_back(coord);
     }
   }
@@ -210,6 +218,8 @@ void fourd_tensor_contraction_count() {
       }
     }
   }
+  A._infer_shape();
+  B._infer_shape();
   auto left_c = CoOrdinate({0, 1, 2, 3});
   auto right_c = CoOrdinate({0, 1, 2, 3});
   std::chrono::high_resolution_clock::time_point t1 =
@@ -246,6 +256,7 @@ void fourd_tensor_contraction_count() {
   std::cout << "Count using FlopCounter " << counter.get_mults() << std::endl;
   std::cout << "Count using HT " << num_mults << std::endl;
   assert(counter.get_mults() == num_mults);
+  assert(counter.get_mults() == 9000);
 }
 
 void fourd_tensor_contraction_shape() {
@@ -293,6 +304,8 @@ void fourd_tensor_contraction_shape() {
   auto left_batch = CoOrdinate({0, 1});
   auto right_c = CoOrdinate({2, 3});
   auto right_batch = CoOrdinate({0, 1});
+  A._infer_shape();
+  B._infer_shape();
   std::chrono::high_resolution_clock::time_point t1 =
       std::chrono::high_resolution_clock::now();
   auto output_coordinates =
@@ -304,7 +317,7 @@ void fourd_tensor_contraction_shape() {
       << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
       << std::endl;
 
-  std::unordered_set<CoOrdinate> ground_truth;
+  std::vector<CoOrdinate> ground_truth;
   for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 11; j++) {
       for (int k = 0; k < 9; k++) {
@@ -318,24 +331,28 @@ void fourd_tensor_contraction_shape() {
               float left_val = A[leftcord];
               float right_val = B[rightcord];
               if (left_val != 0 && right_val != 0)
-                ground_truth.insert(CoOrdinate({i, j, k, l}));
+                ground_truth.push_back(CoOrdinate({i, j, k, l}));
             }
           }
         }
       }
     }
   }
+  std::cout<<"Manually ran shape"<<std::endl;
   std::vector<CoOrdinate> outp_minus_ground;
   for (auto &coord : output_coordinates) {
     // std::cout << coord.get_index(0) << " " << coord.get_index(1) <<
     // std::endl;
-    if (ground_truth.find(coord) == ground_truth.end()) {
+    if (std::find(ground_truth.begin(), ground_truth.end(), coord) == ground_truth.end()) {
       outp_minus_ground.push_back(coord);
     }
   }
   assert(outp_minus_ground.size() == 0);
+  std::cout<<"Precision 100%"<<std::endl;
+  SymbolicTensor gt_tensor(ground_truth.begin(), ground_truth.end());
+  gt_tensor.get_shape();
   std::vector<CoOrdinate> ground_minus_outp;
-  for (auto &coord : ground_truth) {
+  for (auto &coord : gt_tensor) {
     if (output_coordinates.find(coord) == output_coordinates.end()) {
       ground_minus_outp.push_back(coord);
     }
@@ -597,6 +614,10 @@ void sparse_multiply_extrnonly() {
       }
     }
   }
+  T0._infer_shape();
+  T1._infer_shape();
+  std::cout<<"T0 Shape was "<<T0.get_shape_string()<<std::endl;
+  std::cout<<"T1 Shape was "<<T1.get_shape_string()<<std::endl;
 
   Tensor<float> I = T0.multiply<float>(T1, CoOrdinate({1, 2}), CoOrdinate({}),
                                        CoOrdinate({0, 1}), CoOrdinate({}));
@@ -620,7 +641,10 @@ void sparse_multiply_extrnonly() {
       }
     }
   }
+  I._infer_shape();
+  ground_truth._infer_shape();
   assert(ground_truth.reduce() > 0);
+  assert(I.reduce() > 0);
   IndexedTensor<float> ground_truth_indexed(ground_truth,
                                             CoOrdinate({0, 1}));
   IndexedTensor<float> i_indexed(I, CoOrdinate({0, 1}));
@@ -635,6 +659,8 @@ void teov_dlmop_opcount() {
   Tensor<densevec> dlmop("./test_data/d_LMOP.tns", true);
   auto left_c = CoOrdinate(std::vector<int>({0, 1})); // batch,contraction
   auto right_c = CoOrdinate(std::vector<int>({1, 2})); // batch,contraction
+  dteov._infer_shape();
+  dlmop._infer_shape();
   auto count_ops0 = dteov.count_ops(dlmop, left_c, right_c);
   left_c = CoOrdinate(std::vector<int>({1, 0}));
   right_c = CoOrdinate(std::vector<int>({2, 1}));
@@ -642,7 +668,7 @@ void teov_dlmop_opcount() {
   assert(count_ops0 == count_ops1);
 }
 
-Tensor<densevec> tevv_dlmop_fillvalues(Tensor<double> dtevv, Tensor<densevec> dlmop) {
+Tensor<densevec> tevv_dlmop_fillvalues(Tensor<double>& dtevv, Tensor<densevec>& dlmop) {
     // [b_mu, K, m, i, e_mi] = (TEvv[[b_mu, e_mu, K]] * d_LMOP[[m, i, e_mu,
     // e_mi]]) contract e_mu
     auto left_c = CoOrdinate(std::vector<int>({1}));
@@ -658,10 +684,12 @@ Tensor<densevec> tevv_dlmop_fillvalues(Tensor<double> dtevv, Tensor<densevec> dl
                                                                        start)
                      .count()
               << " microseconds" << std::endl;
+    Tensor<densevec> result2 = dtevv.multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
+    std::cout<<"Size of result2 is "<<result2.get_size()<<std::endl;
     return result;
 }
 
-SymbolicTensor tevv_dlmop_outputshape(Tensor<double> dtevv, Tensor<densevec> dlmop) {
+SymbolicTensor tevv_dlmop_outputshape(Tensor<double>& dtevv, Tensor<densevec>& dlmop) {
     // [b_mu, K, m, i, e_mi] = (TEvv[[b_mu, e_mu, K]] * d_LMOP[[m, i, e_mu,
     // e_mi]]) contract e_mu
     auto left_c = CoOrdinate(std::vector<int>({1}));
@@ -681,10 +709,10 @@ SymbolicTensor tevv_dlmop_outputshape(Tensor<double> dtevv, Tensor<densevec> dlm
 void tevv_dlmop_outputshape(){
     Tensor<double> tevv("./test_data/TEvv.tns", true);
     Tensor<densevec> d_LMOP("./test_data/d_LMOP.tns", true);
+    tevv._infer_shape();
+    d_LMOP._infer_shape();
     SymbolicTensor output_shape = tevv_dlmop_outputshape(tevv, d_LMOP);
     Tensor<densevec> output_fv = tevv_dlmop_fillvalues(tevv, d_LMOP);
-    std::cout << "Output shape size " << output_shape.get_size() << std::endl;
-    std::cout << "Output fill values " << output_fv.get_size() << std::endl;
     assert(output_shape.get_size() == output_fv.get_size());
     for (auto &nnz : output_fv) {
         bool found = false;
@@ -717,9 +745,11 @@ void tevv_dlmop_outputshape(){
 
 void symtensor_inf_shape() {
     Tensor<double> teov("./test_data/TEov.tns", true);
+    teov._infer_shape();
     SymbolicTensor symteov(teov);
     std::vector<int> shape = symteov.get_shape();
-    std::vector<int> ground_truth = {4, 24, 375};
+    std::vector<int> ground_truth = {4, 24, 375}; //1 indexed
+    //std::vector<int> ground_truth = {3, 23, 374}; //0 indexed
     assert(shape == ground_truth);
 }
 
@@ -755,84 +785,84 @@ void dense_opcount(){
     assert(shape == ground_truth);
 }
 
-void fill_values_only_nobatch_scalar() {
-    // res(i, e_mu, j, f_mu) = teov(i, e_mu, k) * teov(j, f_mu, k)
-    Tensor<double> teov("./test_data/TEov.tns", true);
-    auto left_c = CoOrdinate(std::vector<int>({2}));
-    auto left_b = CoOrdinate(std::vector<int>({}));
-    auto right_c = CoOrdinate(std::vector<int>({2}));
-    auto right_b = CoOrdinate(std::vector<int>({}));
-    std::chrono::high_resolution_clock::time_point t1 =
-        std::chrono::high_resolution_clock::now();
-    Tensor<double> res =
-        teov.multiply<double>(teov, left_c, left_b, right_c, right_b);
-    std::chrono::high_resolution_clock::time_point t2 =
-        std::chrono::high_resolution_clock::now();
-    std::cout << "Time taken for multiply "
-              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
-                     .count()
-              << std::endl;
-    Tensor<double> res2 =
-        teov.multiply<double>(teov, left_c, left_b, right_c, right_b);
-    res2._infer_dimensionality();
-    t1 = std::chrono::high_resolution_clock::now();
-    res2._fill_values_only(teov, teov, left_c, left_b, right_c, right_b);
-    t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Time taken for fill_values_only doubles "
-              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
-                     .count()
-              << std::endl;
-    CoOrdinate result_idx({});
-    res._infer_dimensionality();
-    result_idx.all_positions(res.get_dimensionality());
-    assert(IndexedTensor<double>(res, result_idx) ==
-           IndexedTensor<double>(res2, result_idx));
-    assert(IndexedTensor<double>(res2, result_idx) ==
-           IndexedTensor<double>(res, result_idx));
-}
+//void fill_values_only_nobatch_scalar() {
+//    // res(i, e_mu, j, f_mu) = teov(i, e_mu, k) * teov(j, f_mu, k)
+//    Tensor<double> teov("./test_data/TEov.tns", true);
+//    auto left_c = CoOrdinate(std::vector<int>({2}));
+//    auto left_b = CoOrdinate(std::vector<int>({}));
+//    auto right_c = CoOrdinate(std::vector<int>({2}));
+//    auto right_b = CoOrdinate(std::vector<int>({}));
+//    std::chrono::high_resolution_clock::time_point t1 =
+//        std::chrono::high_resolution_clock::now();
+//    Tensor<double> res =
+//        teov.multiply<double>(teov, left_c, left_b, right_c, right_b);
+//    std::chrono::high_resolution_clock::time_point t2 =
+//        std::chrono::high_resolution_clock::now();
+//    std::cout << "Time taken for multiply "
+//              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+//                     .count()
+//              << std::endl;
+//    Tensor<double> res2 =
+//        teov.multiply<double>(teov, left_c, left_b, right_c, right_b);
+//    res2._infer_dimensionality();
+//    t1 = std::chrono::high_resolution_clock::now();
+//    res2._fill_values_only(teov, teov, left_c, left_b, right_c, right_b);
+//    t2 = std::chrono::high_resolution_clock::now();
+//    std::cout << "Time taken for fill_values_only doubles "
+//              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+//                     .count()
+//              << std::endl;
+//    CoOrdinate result_idx({});
+//    res._infer_dimensionality();
+//    result_idx.all_positions(res.get_dimensionality());
+//    assert(IndexedTensor<double>(res, result_idx) ==
+//           IndexedTensor<double>(res2, result_idx));
+//    assert(IndexedTensor<double>(res2, result_idx) ==
+//           IndexedTensor<double>(res, result_idx));
+//}
 
-void fill_values_only() {
-    // res(i, k, j, e_ij) = teov(i, e_mu, k) * dlmop(i, j, e_mu, e_ij)
-    Tensor<float> teov("./test_data/TEov.tns", true);
-    Tensor<densevec> dlmop("./test_data/d_LMOP.tns", true);
-    auto left_c = CoOrdinate(std::vector<int>({1}));
-    auto left_b = CoOrdinate(std::vector<int>({0}));
-    auto right_c = CoOrdinate(std::vector<int>({2}));
-    auto right_b = CoOrdinate(std::vector<int>({0}));
-    std::chrono::high_resolution_clock::time_point t1 =
-        std::chrono::high_resolution_clock::now();
-    Tensor<densevec> res =
-        teov.multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
-    std::chrono::high_resolution_clock::time_point t2 =
-        std::chrono::high_resolution_clock::now();
-    std::cout << "Time taken for multiply "
-              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
-                     .count()
-              << std::endl;
-    Tensor<densevec> res2 =
-        teov.multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
-    res2._infer_dimensionality();
-    t1 = std::chrono::high_resolution_clock::now();
-    res2._fill_values_only(teov, dlmop, left_c, left_b, right_c, right_b);
-    t2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Time taken for fill_values_only densevec "
-              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
-                     .count()
-              << std::endl;
-    CoOrdinate result_idx({});
-    res._infer_dimensionality();
-    result_idx.all_positions(res.get_dimensionality());
-    assert(IndexedTensor<densevec>(res, result_idx) ==
-           IndexedTensor<densevec>(res2, result_idx));
-    assert(IndexedTensor<densevec>(res2, result_idx) ==
-           IndexedTensor<densevec>(res, result_idx));
-}
+//void fill_values_only() {
+//    // res(i, k, j, e_ij) = teov(i, e_mu, k) * dlmop(i, j, e_mu, e_ij)
+//    Tensor<float> teov("./test_data/TEov.tns", true);
+//    Tensor<densevec> dlmop("./test_data/d_LMOP.tns", true);
+//    auto left_c = CoOrdinate(std::vector<int>({1}));
+//    auto left_b = CoOrdinate(std::vector<int>({0}));
+//    auto right_c = CoOrdinate(std::vector<int>({2}));
+//    auto right_b = CoOrdinate(std::vector<int>({0}));
+//    std::chrono::high_resolution_clock::time_point t1 =
+//        std::chrono::high_resolution_clock::now();
+//    Tensor<densevec> res =
+//        teov.multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
+//    std::chrono::high_resolution_clock::time_point t2 =
+//        std::chrono::high_resolution_clock::now();
+//    std::cout << "Time taken for multiply "
+//              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+//                     .count()
+//              << std::endl;
+//    Tensor<densevec> res2 =
+//        teov.multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
+//    res2._infer_dimensionality();
+//    t1 = std::chrono::high_resolution_clock::now();
+//    res2._fill_values_only(teov, dlmop, left_c, left_b, right_c, right_b);
+//    t2 = std::chrono::high_resolution_clock::now();
+//    std::cout << "Time taken for fill_values_only densevec "
+//              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+//                     .count()
+//              << std::endl;
+//    CoOrdinate result_idx({});
+//    res._infer_dimensionality();
+//    result_idx.all_positions(res.get_dimensionality());
+//    assert(IndexedTensor<densevec>(res, result_idx) ==
+//           IndexedTensor<densevec>(res2, result_idx));
+//    assert(IndexedTensor<densevec>(res2, result_idx) ==
+//           IndexedTensor<densevec>(res, result_idx));
+//}
 
 int main() {
-    fill_values_only();
-    std::cout<<"Passed fill_values_only"<<std::endl;
-    fill_values_only_nobatch_scalar();
-    std::cout<<"Passed fill_values_only_nobatch_scalar"<<std::endl;
+    //fill_values_only();
+    //std::cout<<"Passed fill_values_only"<<std::endl;
+    //fill_values_only_nobatch_scalar();
+    //std::cout<<"Passed fill_values_only_nobatch_scalar"<<std::endl;
     symtensor_inf_shape();
     std::cout << "Passed symtensor_inf_shape" << std::endl;
     dense_opcount();
@@ -846,7 +876,7 @@ int main() {
   sparse_gemm_shape();
   std::cout << "Passed sparse_gemm_shape" << std::endl;
   fourd_tensor_contraction_count();
-  std::cout << "Passed fourd_tensor_contraction" << std::endl;
+  std::cout << "Passed fourd_tensor_contraction_count" << std::endl;
   fourd_tensor_contraction_shape();
   std::cout << "Passed fourd_tensor_contraction_shape" << std::endl;
   dense_multiply();

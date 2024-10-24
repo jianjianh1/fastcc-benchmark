@@ -20,7 +20,7 @@ template <typename T> static std::size_t hasharray(int size, T *arr) {
 }
 
 class CoOrdinate {
-#define BITWIDTH (128)
+#define BITWIDTH (512)
   std::vector<int> coords;
   std::bitset<BITWIDTH> mybits;
   std::vector<int> max_indices;
@@ -296,6 +296,13 @@ class SymbolicTensor {
       for (int i = 0; i < shape.size(); i++) {
         shape[i] += 1;
       }
+      std::vector<int> zeroindexed_shape;
+      for(int i = 0; i < shape.size(); i++){
+          zeroindexed_shape.push_back(shape[i] - 1);
+      }
+      for(auto &ind:indices){
+          ind.set_shape(zeroindexed_shape);
+      }
     }
   }
 
@@ -501,14 +508,18 @@ public:
   IndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
     base_tensor._infer_shape();
     shape = base_tensor.get_shape_ref();
+    int reduced_shape[DIMENSIONALITY];
+    for(int i = 0; i < index_coords.get_dimensionality(); i++){
+        reduced_shape[i] = shape[index_coords.get_index(i)];
+    }
     for (auto &nnz : base_tensor) {
       BoundedCoordinate index = nnz.get_coords()
                                     .gather(index_coords)
-                                    .get_bounded(base_tensor.get_shape_ref());
+                                    .get_bounded(reduced_shape);
       BoundedCoordinate remaining =
           nnz.get_coords()
               .remove(index_coords)
-              .get_bounded(base_tensor.get_shape_ref());
+              .get_bounded(reduced_shape);
       auto it = indexed_tensor.find(index);
       if (it != indexed_tensor.end()) {
         it.value().push_back({remaining, nnz.get_data()});
@@ -754,6 +765,7 @@ public:
     for (auto &left_entry : left_indexed.indexed_tensor) {
       auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
       if (right_entry != right_indexed.indexed_tensor.end()) {
+
         for (auto &left_ev :
              left_entry.second) { // loop over (e_l, nnz_l): external left, nnz
                                   // at that external left.
@@ -794,6 +806,7 @@ public:
       }
     }
     std::cout<<"Overflow size "<<result.overflow_size()<<std::endl;
+    std::cout<<"Result NNZ count "<<result.size()<<std::endl;
     start = std::chrono::high_resolution_clock::now();
     Tensor<RES> result_tensor(result.size());
 
@@ -813,8 +826,8 @@ public:
   void fill_values(Tensor<L> &left, Tensor<R> &right, CoOrdinate left_contr,
                    CoOrdinate left_batch, CoOrdinate right_contr,
                    CoOrdinate right_batch) {
-    Tensor<DT> result = this->multiply<DT>(left, left_contr, left_batch, right_contr,
-                                       right_batch);
+      // make result tensor as the multiply of Tensor left and Tensor right
+      Tensor<DT> result = left.template multiply<DT>(right, left_contr, left_batch, right_contr, right_batch);
 
 
     //TODO: remove this so that the next iteration can use the non-zero positions.

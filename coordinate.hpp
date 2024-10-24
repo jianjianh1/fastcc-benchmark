@@ -93,6 +93,14 @@ public:
                              right.get_dimensionality());
   }
   int get_dimensionality() const { return dimensions; }
+  std::string to_string() const {
+    std::string str = "";
+    for (int i = 0; i < dimensions; i++) {
+      str += std::to_string(this->coords[i]) + "/" +
+             std::to_string(this->bounds[i]) + " ";
+    }
+    return str;
+  }
 
   int get_coordinate(int position) const {
     assert(position < dimensions);
