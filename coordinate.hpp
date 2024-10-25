@@ -180,6 +180,8 @@ template <> struct std::hash<BoundedCoordinate> {
   }
 };
 
+static int doubleequals = 0;
+
 class OutputCoordinate {
   BoundedCoordinate batch, left_external, right_external;
 
@@ -188,8 +190,12 @@ public:
                    BoundedCoordinate r)
       : batch(b), left_external(l), right_external(r) {}
   bool operator==(const OutputCoordinate &other) const {
+      doubleequals++;
     return batch == other.batch && left_external == other.left_external &&
            right_external == other.right_external;
+  }
+  int static get_equality_count(){
+      return doubleequals;
   }
   BoundedCoordinate merge() {
     return BoundedCoordinate(batch, left_external, right_external);

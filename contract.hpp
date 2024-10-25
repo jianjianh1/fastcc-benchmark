@@ -541,6 +541,7 @@ public:
   }
 
   // Needs shape for left and right tensors
+  // full outer multiplication
   template <class RES, class RIGHT>
   Tensor<RES> multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
                        CoOrdinate left_batch, CoOrdinate right_contr,
@@ -614,6 +615,7 @@ public:
     std::cout<<"Overflow size "<<result.overflow_size()<<std::endl;
     std::cout<<"Result NNZ count "<<result.size()<<std::endl;
     std::cout<<"Number of calls to find "<<counter<<std::endl;
+    std::cout<<"Number of calls to == "<< OutputCoordinate::get_equality_count()<<std::endl;
     start = std::chrono::high_resolution_clock::now();
     Tensor<RES> result_tensor(result.size());
 
@@ -626,6 +628,13 @@ public:
             .count();
     std::cout << "Time taken to writeback: " << time_taken << std::endl;
     return result_tensor;
+  }
+
+  // inner outer multiplication
+ template <class RES, class RIGHT>
+  Tensor<RES> inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                       CoOrdinate left_batch, CoOrdinate right_contr,
+                       CoOrdinate right_batch) {
   }
 
   //Very hacky in-place multiply, need to redo if it is really needed.
