@@ -508,18 +508,11 @@ public:
   IndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
     base_tensor._infer_shape();
     shape = base_tensor.get_shape_ref();
-    int reduced_shape[DIMENSIONALITY];
-    for(int i = 0; i < index_coords.get_dimensionality(); i++){
-        reduced_shape[i] = shape[index_coords.get_index(i)];
-    }
+    BoundedPosition filter_pos = BoundedPosition(index_coords.begin(), index_coords.end());
     for (auto &nnz : base_tensor) {
-      BoundedCoordinate index = nnz.get_coords()
-                                    .gather(index_coords)
-                                    .get_bounded(reduced_shape);
-      BoundedCoordinate remaining =
-          nnz.get_coords()
-              .remove(index_coords)
-              .get_bounded(reduced_shape);
+      BoundedCoordinate full_coordinate = nnz.get_coords().get_bounded(shape);
+      BoundedCoordinate index = full_coordinate.gather(filter_pos);
+      BoundedCoordinate remaining = full_coordinate.remove(filter_pos);
       auto it = indexed_tensor.find(index);
       if (it != indexed_tensor.end()) {
         it.value().push_back({remaining, nnz.get_data()});
@@ -750,7 +743,8 @@ public:
     IndexedTensor<RIGHT> right_indexed =
         IndexedTensor<RIGHT>(other, right_idx_pos);
 
-    tsl::hopscotch_map<OutputCoordinate, RES, std::hash<OutputCoordinate>, std::equal_to<OutputCoordinate>, std::allocator<std::pair<OutputCoordinate, RES>>, (unsigned int)62, (bool)0, tsl::hh::prime_growth_policy> result;
+    //tsl::hopscotch_map<OutputCoordinate, RES, std::hash<OutputCoordinate>, std::equal_to<OutputCoordinate>, std::allocator<std::pair<OutputCoordinate, RES>>, (unsigned int)62, (bool)0, tsl::hh::prime_growth_policy> result;
+    tsl::hopscotch_map<OutputCoordinate, RES> result;
 
     //tsl::hopscotch_map<OutputCoordinate, RES, ..., GrowthPolicy=tsl::hh::prime_growth_policy> result;
     std::vector<int> batch_pos_afterhash(left_batch.get_dimensionality());
@@ -761,6 +755,7 @@ public:
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to index: " << time_taken << std::endl;
+    long long int counter = 0;
 
     for (auto &left_entry : left_indexed.indexed_tensor) {
       auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
@@ -796,6 +791,7 @@ public:
               outp = left_ev.second * right_ev.second;
             }
             auto result_ref = result.find(output_coords);
+            counter++;
             if (result_ref != result.end()) {
               result_ref.value() += outp;
             } else {
@@ -807,6 +803,7 @@ public:
     }
     std::cout<<"Overflow size "<<result.overflow_size()<<std::endl;
     std::cout<<"Result NNZ count "<<result.size()<<std::endl;
+    std::cout<<"Number of calls to find "<<counter<<std::endl;
     start = std::chrono::high_resolution_clock::now();
     Tensor<RES> result_tensor(result.size());
 

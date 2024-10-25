@@ -27,6 +27,11 @@ public:
     dimensions += right.get_dimensionality();
     assert(dimensions <= DIMENSIONALITY);
   }
+  template<class It> BoundedPosition(It begin, It end){
+      for(It iter = begin; iter < end; iter++){
+          positions[dimensions++] = *iter;
+      }
+  }
   BoundedPosition(std::vector<int> positions) {
     for (int i = 0; i < positions.size(); i++) {
       this->positions[i] = positions[i];
