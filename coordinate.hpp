@@ -6,13 +6,14 @@
 #include <assert.h>
 #include <boost/container_hash/hash.hpp>
 #include <cstring>
+#include <iostream>
 #include <variant>
 #include <vector>
 #define DIMENSIONALITY 6
 #define GOOD_PRIME 3145739
 
 class BoundedPosition {
-  int dimensions = 0;
+  short dimensions = 0;
   int positions[DIMENSIONALITY];
 
 public:
@@ -27,10 +28,10 @@ public:
     dimensions += right.get_dimensionality();
     assert(dimensions <= DIMENSIONALITY);
   }
-  template<class It> BoundedPosition(It begin, It end){
-      for(It iter = begin; iter < end; iter++){
-          positions[dimensions++] = *iter;
-      }
+  template <class It> BoundedPosition(It begin, It end) {
+    for (It iter = begin; iter < end; iter++) {
+      positions[dimensions++] = *iter;
+    }
   }
   BoundedPosition(std::vector<int> positions) {
     for (int i = 0; i < positions.size(); i++) {
@@ -49,10 +50,12 @@ public:
   }
 };
 
+// This is only for tensors with co-ordinates up to 16 bits, ie 65k
 class BoundedCoordinate {
-  int dimensions = 0;
-  int coords[DIMENSIONALITY];
-  int bounds[DIMENSIONALITY];
+  uint8_t dimensions = 0;
+  uint16_t coords[DIMENSIONALITY];
+  uint16_t bounds[DIMENSIONALITY];
+  //size_t linearization = -1;
 
 public:
   BoundedCoordinate(int *coords, int *bounds, int dimensions) {
@@ -61,6 +64,7 @@ public:
       this->bounds[i] = bounds[i];
     }
     this->dimensions = dimensions;
+    //linearization = this->get_linearization();
   }
   BoundedCoordinate(BoundedCoordinate &left, BoundedCoordinate &right) {
     for (int i = 0; i < left.get_dimensionality(); i++) {
@@ -74,6 +78,7 @@ public:
     }
     dimensions += right.get_dimensionality();
     assert(dimensions <= DIMENSIONALITY);
+    //linearization = this->get_linearization();
   }
   BoundedCoordinate(BoundedCoordinate &left, BoundedCoordinate &mid,
                     BoundedCoordinate &right) {
@@ -96,6 +101,7 @@ public:
     assert(dimensions <= DIMENSIONALITY);
     assert(dimensions == left.get_dimensionality() + mid.get_dimensionality() +
                              right.get_dimensionality());
+    //linearization = this->get_linearization();
   }
   int get_dimensionality() const { return dimensions; }
   std::string to_string() const {
@@ -115,19 +121,21 @@ public:
     assert(position < dimensions);
     return bounds[position];
   }
-  size_t get_linear_bound() const {
+  size_t get_linear_bound(int offset = 1) const {
     size_t result = 1;
     for (int i = 0; i < this->get_dimensionality(); i++) {
-      result *= this->get_bound(i);
+      result *= (size_t)(this->get_bound(i) + offset);
     }
     return result;
   }
-  size_t get_linearization() const {
+  size_t get_linearization(int offset = 1) const {
+    //if (this->linearization != -1)
+    //  return this->linearization;
     size_t linearlized_cord = 0;
     for (int i = 0; i < this->get_dimensionality(); i++) {
       linearlized_cord += this->get_coordinate(i);
       if (i != this->get_dimensionality() - 1) {
-        linearlized_cord *= this->get_bound(i + 1);
+        linearlized_cord *= (this->get_bound(i + 1) + offset);
       }
     }
     return linearlized_cord;
@@ -186,17 +194,28 @@ class OutputCoordinate {
   BoundedCoordinate batch, left_external, right_external;
 
 public:
+  size_t linearization = -1;
   OutputCoordinate(BoundedCoordinate b, BoundedCoordinate l,
                    BoundedCoordinate r)
-      : batch(b), left_external(l), right_external(r) {}
+      : batch(b), left_external(l), right_external(r) {
+    // std::cout << "Batch " << b.to_string() << ", left " << l.to_string()
+    //           << ", right " << r.to_string() << std::endl;
+    // std::cout<<"Linearization is "<<this->get_linearization()<<std::endl;
+    // std::cout<<"Linearization: "<<std::endl;
+    // std::cout<<"Batch "<<b.get_linearization()<<", left
+    // "<<l.get_linearization()<<", right "<<r.get_linearization()<<std::endl;
+    // std::cout<<"Bounds: "<<std::endl;
+    // std::cout<<"Batch "<<b.get_linear_bound()<<", left
+    // "<<l.get_linear_bound()<<", right "<<r.get_linear_bound()<<std::endl;
+    this->linearization = this->get_linearization();
+  }
   bool operator==(const OutputCoordinate &other) const {
-      doubleequals++;
-    return batch == other.batch && left_external == other.left_external &&
-           right_external == other.right_external;
+    doubleequals++;
+    return this->linearization == other.linearization;
+    // return batch == other.batch && left_external == other.left_external &&
+    //        right_external == other.right_external;
   }
-  int static get_equality_count(){
-      return doubleequals;
-  }
+  int static get_equality_count() { return doubleequals; }
   BoundedCoordinate merge() {
     return BoundedCoordinate(batch, left_external, right_external);
   }
@@ -204,6 +223,8 @@ public:
   const BoundedCoordinate &get_left() const { return left_external; }
   const BoundedCoordinate &get_right() const { return right_external; }
   size_t get_linearization() const {
+    if (this->linearization != -1)
+      return this->linearization;
     return (batch.get_linearization() * (left_external.get_linear_bound() *
                                          right_external.get_linear_bound()) +
             left_external.get_linearization() *
@@ -221,7 +242,7 @@ public:
     if (right_bound >= left_bound && right_bound >= batch_bound)
       return std::hash<BoundedCoordinate>()(right_external);
     else
-        assert(false);
+      assert(false);
   }
   // int get_dimensionality() const {
   //     return batch.get_dimensionality() + left_external.get_dimensionality()
@@ -231,23 +252,28 @@ public:
 
 template <> struct std::hash<OutputCoordinate> {
   std::size_t operator()(const OutputCoordinate &c) const {
-    //size_t result = 0;
-    //boost::hash_combine(result,
-    //std::hash<BoundedCoordinate>()(c.get_batch()));
-    //boost::hash_combine(result,
-    //std::hash<BoundedCoordinate>()(c.get_left()));
-    //boost::hash_combine(result,
-    //std::hash<BoundedCoordinate>()(c.get_right()));
-    //return result;
-    return c.get_linearization();
-    //return c.get_min_hash();
-    // size_t linearlized_cord = 0;
-    // for (int i = 0; i < c.get_dimensionality(); i++) {
-    //   linearlized_cord += c.get_coordinate(i);
-    //   if (i != c.get_dimensionality() - 1) {
-    //     linearlized_cord *= c.get_bound(i + 1);
-    //   }
-    // }
+    // size_t result = 0;
+    // boost::hash_combine(result,
+    // std::hash<BoundedCoordinate>()(c.get_batch()));
+    // boost::hash_combine(result,
+    // std::hash<BoundedCoordinate>()(c.get_left()));
+    // boost::hash_combine(result,
+    // std::hash<BoundedCoordinate>()(c.get_right()));
+    // return result;
+    size_t hash_res =
+        c.get_batch().get_linearization(0) * c.get_left().get_linear_bound(0) *
+            c.get_right().get_linear_bound(0) +
+        c.get_left().get_linearization(0) * c.get_right().get_linear_bound(0) +
+        c.get_right().get_linearization(0);
+    return std::hash<size_t>()(hash_res);
+    // return c.get_min_hash();
+    //  size_t linearlized_cord = 0;
+    //  for (int i = 0; i < c.get_dimensionality(); i++) {
+    //    linearlized_cord += c.get_coordinate(i);
+    //    if (i != c.get_dimensionality() - 1) {
+    //      linearlized_cord *= c.get_bound(i + 1);
+    //    }
+    //  }
   }
 };
 
@@ -271,7 +297,7 @@ public:
       this->coords.push_back(coords[i]);
     }
     for (auto &cord : this->coords) {
-      mybits <<= (sizeof(int)*8);
+      mybits <<= (sizeof(int) * 8);
       mybits |= std::bitset<BITWIDTH>(cord);
     }
   }
@@ -282,10 +308,11 @@ public:
       coords.push_back(i);
     }
   }
-  CoOrdinate(std::vector<int> const & data, std::vector<int> shape=std::vector<int>() ){
+  CoOrdinate(std::vector<int> const &data,
+             std::vector<int> shape = std::vector<int>()) {
     this->coords = data;
     for (auto &cord : this->coords) {
-      mybits <<= (sizeof(int)*8);
+      mybits <<= (sizeof(int) * 8);
       mybits |= std::bitset<BITWIDTH>(cord);
     }
     this->max_indices = shape;
@@ -293,61 +320,80 @@ public:
   std::string to_string() const;
   void write(std::string filename) const;
   BoundedCoordinate get_bounded(int *bounds) const {
-    return BoundedCoordinate((int*)coords.data(), bounds, coords.size());
+    return BoundedCoordinate((int *)coords.data(), bounds, coords.size());
   }
 
   // This is going to concatenate two coordinates
   CoOrdinate(CoOrdinate const &left, CoOrdinate const &right) {
-      //if(left.get_shape().size() == 0 || right.get_shape().size() == 0){
-      //    std::cerr<<"Need to set shape before concatenating coordinates"<<std::endl;
-      //    assert(false);
-      //} else {
-          //this->max_indices.reserve(left.get_dimensionality() + right.get_dimensionality());
-          if(left.get_shape().size() > 0){
-              this->max_indices.insert(this->max_indices.end(), left.get_shape().begin(), left.get_shape().end());
-          }
-          if(right.get_shape().size() > 0){
-              this->max_indices.insert(this->max_indices.end(), right.get_shape().begin(), right.get_shape().end());
-          }
-      //}
-      coords.reserve(left.get_dimensionality() + right.get_dimensionality());
-      //memcpy(coords.data(), left.coords.data(), left.get_dimensionality() * sizeof(int));
-      //memcpy(coords.data() + left.get_dimensionality(), right.coords.data(), right.get_dimensionality() * sizeof(int));
+    // if(left.get_shape().size() == 0 || right.get_shape().size() == 0){
+    //     std::cerr<<"Need to set shape before concatenating
+    //     coordinates"<<std::endl; assert(false);
+    // } else {
+    // this->max_indices.reserve(left.get_dimensionality() +
+    // right.get_dimensionality());
+    if (left.get_shape().size() > 0) {
+      this->max_indices.insert(this->max_indices.end(),
+                               left.get_shape().begin(),
+                               left.get_shape().end());
+    }
+    if (right.get_shape().size() > 0) {
+      this->max_indices.insert(this->max_indices.end(),
+                               right.get_shape().begin(),
+                               right.get_shape().end());
+    }
+    //}
+    coords.reserve(left.get_dimensionality() + right.get_dimensionality());
+    // memcpy(coords.data(), left.coords.data(), left.get_dimensionality() *
+    // sizeof(int)); memcpy(coords.data() + left.get_dimensionality(),
+    // right.coords.data(), right.get_dimensionality() * sizeof(int));
     coords.insert(coords.end(), left.coords.begin(), left.coords.end());
     coords.insert(coords.end(), right.coords.begin(), right.coords.end());
     for (auto &cord : this->coords) {
-      mybits <<= (sizeof(int)*8); // sizeof is in bytes, so we need to multiply by 8 to get bits
+      mybits <<=
+          (sizeof(int) *
+           8); // sizeof is in bytes, so we need to multiply by 8 to get bits
       mybits |= std::bitset<BITWIDTH>(cord);
     }
   }
 
-  CoOrdinate(CoOrdinate const &left, CoOrdinate const &mid, CoOrdinate const &right){
-      //if(left.get_shape().size() == 0 || mid.get_shape().size() == 0 || right.get_shape().size() == 0){
-      //    std::cerr<<"Need to set shape before concatenating coordinates"<<std::endl;
-      //    assert(false);
-      //} else {
-          //this->max_indices.reserve(left.get_dimensionality() + mid.get_dimensionality() + right.get_dimensionality());
-          if(left.get_shape().size() > 0){
-              this->max_indices.insert(this->max_indices.end(), left.get_shape().begin(), left.get_shape().end());
-          }
-          if(mid.get_shape().size() > 0){
-              this->max_indices.insert(this->max_indices.end(), mid.get_shape().begin(), mid.get_shape().end());
-          }
-          if(right.get_shape().size() > 0){
-              this->max_indices.insert(this->max_indices.end(), right.get_shape().begin(), right.get_shape().end());
-          }
-      //}
-      coords.reserve(left.get_dimensionality() + mid.get_dimensionality() + right.get_dimensionality());
-      coords.insert(coords.end(), left.coords.begin(), left.coords.end());
-      coords.insert(coords.end(), mid.coords.begin(), mid.coords.end());
-      coords.insert(coords.end(), right.coords.begin(), right.coords.end());
-      for (auto &cord : this->coords) {
-        mybits <<= (sizeof(int)*8); // sizeof is in bytes, so we need to multiply by 8 to get bits
-        mybits |= std::bitset<BITWIDTH>(cord);
-      }
+  CoOrdinate(CoOrdinate const &left, CoOrdinate const &mid,
+             CoOrdinate const &right) {
+    // if(left.get_shape().size() == 0 || mid.get_shape().size() == 0 ||
+    // right.get_shape().size() == 0){
+    //     std::cerr<<"Need to set shape before concatenating
+    //     coordinates"<<std::endl; assert(false);
+    // } else {
+    // this->max_indices.reserve(left.get_dimensionality() +
+    // mid.get_dimensionality() + right.get_dimensionality());
+    if (left.get_shape().size() > 0) {
+      this->max_indices.insert(this->max_indices.end(),
+                               left.get_shape().begin(),
+                               left.get_shape().end());
+    }
+    if (mid.get_shape().size() > 0) {
+      this->max_indices.insert(this->max_indices.end(), mid.get_shape().begin(),
+                               mid.get_shape().end());
+    }
+    if (right.get_shape().size() > 0) {
+      this->max_indices.insert(this->max_indices.end(),
+                               right.get_shape().begin(),
+                               right.get_shape().end());
+    }
+    //}
+    coords.reserve(left.get_dimensionality() + mid.get_dimensionality() +
+                   right.get_dimensionality());
+    coords.insert(coords.end(), left.coords.begin(), left.coords.end());
+    coords.insert(coords.end(), mid.coords.begin(), mid.coords.end());
+    coords.insert(coords.end(), right.coords.begin(), right.coords.end());
+    for (auto &cord : this->coords) {
+      mybits <<=
+          (sizeof(int) *
+           8); // sizeof is in bytes, so we need to multiply by 8 to get bits
+      mybits |= std::bitset<BITWIDTH>(cord);
+    }
   }
 
-  CoOrdinate gather(CoOrdinate const &positions) const{
+  CoOrdinate gather(CoOrdinate const &positions) const {
     // TODO remove before flight
     if (positions.get_dimensionality() > this->get_dimensionality()) {
       std::cout << "Error, trying to gather more dimensions than there are in "
@@ -372,9 +418,9 @@ public:
     std::vector<int> gathered_shape;
     std::vector<int> og_shape = this->get_shape();
     if (og_shape.size() > 0) {
-        for(auto &cord : positions){
-            gathered_shape.push_back(og_shape[cord]);
-        }
+      for (auto &cord : positions) {
+        gathered_shape.push_back(og_shape[cord]);
+      }
     }
     for (int i = 0; i < positions.get_dimensionality(); i++) {
       gathered.push_back(coords[positions.get_index(i)]);
@@ -404,7 +450,7 @@ public:
   int get_index(int dim) const { return coords[dim]; }
   int get_dimensionality() const { return coords.size(); }
   void set_shape(std::vector<int> shape) { max_indices = shape; }
-  const std::vector<int>& get_shape() const { return max_indices;}
+  const std::vector<int> &get_shape() const { return max_indices; }
   std::bitset<BITWIDTH> get_bits() const { return mybits; }
   bool operator==(const CoOrdinate &other) const {
     return mybits == other.mybits;
@@ -423,24 +469,22 @@ public:
 
 template <> struct std::hash<CoOrdinate> {
   std::size_t operator()(const CoOrdinate &c) const {
-      if(c.get_shape().size() == 0){
-          std::cerr<<"Need to set shape before hashing coordinate"<<std::endl;
-          assert(false);
-      }
+    if (c.get_shape().size() == 0) {
+      std::cerr << "Need to set shape before hashing coordinate" << std::endl;
+      assert(false);
+    }
 
-      size_t linearlized_cord = 0;
-      for(int i = 0; i < c.get_dimensionality(); i++){
-          linearlized_cord += c.get_index(i);
-          if(i != c.get_dimensionality() - 1){
-              linearlized_cord *= c.get_shape()[i+1];
-          }
+    size_t linearlized_cord = 0;
+    for (int i = 0; i < c.get_dimensionality(); i++) {
+      linearlized_cord += c.get_index(i);
+      if (i != c.get_dimensionality() - 1) {
+        linearlized_cord *= c.get_shape()[i + 1];
       }
-      return linearlized_cord;
+    }
+    return linearlized_cord;
 
-    //return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits());
+    // return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits());
   }
 };
-
-
 
 #endif
