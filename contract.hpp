@@ -315,6 +315,11 @@ public:
   hashmap_vals indexed_tensor;
   int *shape = nullptr;
 
+  using iterator = typename hashmap_vals::iterator;
+  using value_type = typename hashmap_vals::value_type;
+  iterator begin() { return indexed_tensor.begin(); }
+  iterator end() { return indexed_tensor.end(); }
+
   IndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
     base_tensor._infer_shape();
     shape = base_tensor.get_shape_ref();
@@ -631,10 +636,80 @@ public:
   }
 
   // inner outer multiplication
- template <class RES, class RIGHT>
+  template <class RES, class RIGHT>
   Tensor<RES> inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
-                       CoOrdinate left_batch, CoOrdinate right_contr,
-                       CoOrdinate right_batch) {
+                                   CoOrdinate left_batch,
+                                   CoOrdinate right_contr,
+                                   CoOrdinate right_batch) {
+    // for l
+    //    for coiter
+    //       for r
+
+    this->_infer_dimensionality();
+    this->_infer_shape();
+    other._infer_dimensionality();
+    other._infer_shape();
+    CoOrdinate left_coiteration = CoOrdinate(left_batch, left_contr);
+    // Make a vector with 0 to dimensionality - 1.
+    std::vector<int> all_indices = std::vector<int>(this->get_dimensionality());
+    std::iota(all_indices.begin(), all_indices.end(), 0);
+    CoOrdinate left_external = CoOrdinate(all_indices).remove(left_coiteration);
+    IndexedTensor<DT> left_indexed = IndexedTensor<DT>(*this, left_external);
+    std::vector<int> batch_pos_afterhash(left_batch.get_dimensionality());
+    std::iota(batch_pos_afterhash.begin(), batch_pos_afterhash.end(), 0);
+    BoundedPosition batchpos = BoundedPosition(batch_pos_afterhash);
+
+    CoOrdinate right_coiteration = CoOrdinate(right_batch, right_contr);
+    IndexedTensor<RIGHT> right_indexed =
+        IndexedTensor<RIGHT>(other, right_coiteration);
+
+    tsl::hopscotch_map<OutputCoordinate, RES> result;
+
+
+    for (auto &left_slice : left_indexed) {
+      BoundedCoordinate left_ext_cordinate = left_slice.first;
+      for (auto left_nnz : left_slice.second) {
+        BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
+        auto right_slice = right_indexed.indexed_tensor.find(left_nnz.first);
+        if (right_slice != right_indexed.indexed_tensor.end()) {
+          // There is atleast one nnz matching
+          for (auto &right_nnz : right_slice->second) {
+            BoundedCoordinate right_ext_cordinate = right_nnz.first;
+            DT left_val = left_nnz.second;
+            RIGHT right_val = right_nnz.second;
+            RES outp;
+            if constexpr (std::is_same<DT, densevec>() &&
+                          std::is_same<RIGHT, densevec>() &&
+                          std::is_same<RES, densemat>()) {
+              outp = left_val.densevec::outer(right_val);
+            } else if constexpr (std::is_same<DT, densemat>() &&
+                                 std::is_same<RIGHT, densemat>() &&
+                                 std::is_same<RES, double>()) {
+              outp = left_val.mult_reduce(right_val);
+
+            } else {
+              outp = left_val * right_val;
+            }
+            OutputCoordinate output_coords = OutputCoordinate(
+                batch_coord, left_ext_cordinate, right_ext_cordinate);
+            auto result_ref = result.find(output_coords);
+            if (result_ref != result.end()) {
+              result_ref.value() += outp;
+            } else {
+              result[output_coords] = outp;
+            }
+          }
+        }
+      }
+    }
+
+    Tensor<RES> result_tensor(result.size());
+
+    for (auto nnz : result) {
+      result_tensor.get_nonzeros().push_back(
+          NNZ<RES>(nnz.second, nnz.first.merge()));
+    }
+    return result_tensor;
   }
 
   //Very hacky in-place multiply, need to redo if it is really needed.

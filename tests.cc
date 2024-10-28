@@ -396,6 +396,10 @@ void dense_multiply() {
       T0.multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
                          CoOrdinate({2, 3}), CoOrdinate({0, 1}));
 
+  Tensor<float> I_inout =
+      T0.inner_outer_multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
+                         CoOrdinate({2, 3}), CoOrdinate({0, 1}));
+
   Tensor<float> ground_truth(520);
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 3; j++) {
@@ -418,10 +422,14 @@ void dense_multiply() {
   IndexedTensor<float> ground_truth_indexed(ground_truth,
                                             CoOrdinate({0, 1, 2, 3}));
   IndexedTensor<float> i_indexed(I, CoOrdinate({0, 1, 2, 3}));
+  IndexedTensor<float> inout_indexed(I_inout, CoOrdinate({0, 1, 2, 3}));
   assert(i_indexed == ground_truth_indexed);
   std::cout << "precision 100%" << std::endl;
   assert(ground_truth_indexed == i_indexed);
   std::cout << "recall 100%" << std::endl;
+  assert(inout_indexed == ground_truth_indexed);
+  assert(ground_truth_indexed == inout_indexed);
+  std::cout<<"inner outer matches ground truth"<<std::endl;
 }
 
 bool one_in_x() {
@@ -470,6 +478,9 @@ void sparse_multiply() {
   Tensor<float> I =
       T0.multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
                          CoOrdinate({2, 3}), CoOrdinate({0, 1}));
+  Tensor<float> I_inout =
+      T0.inner_outer_multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
+                         CoOrdinate({2, 3}), CoOrdinate({0, 1}));
 
   Tensor<float> ground_truth(520);
   for (int i = 0; i < 2; i++) {
@@ -497,10 +508,14 @@ void sparse_multiply() {
   IndexedTensor<float> ground_truth_indexed(ground_truth,
                                             CoOrdinate({0, 1, 2, 3}));
   IndexedTensor<float> i_indexed(I, CoOrdinate({0, 1, 2, 3}));
+  IndexedTensor<float> inout_indexed(I_inout, CoOrdinate({0, 1, 2, 3}));
   assert(i_indexed == ground_truth_indexed);
   std::cout << "precision 100%" << std::endl;
   assert(ground_truth_indexed == i_indexed);
   std::cout << "recall 100%" << std::endl;
+  assert(inout_indexed == ground_truth_indexed);
+  assert(ground_truth_indexed == inout_indexed);
+  std::cout<< "Inner outer matches ground truth"<<std::endl;
 }
 
 void sparse_multiply_offsetcrd() {
@@ -546,6 +561,10 @@ void sparse_multiply_offsetcrd() {
       T0.multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
                          CoOrdinate({2, 3}), CoOrdinate({0, 1}));
 
+  Tensor<float> I_inout =
+      T0.inner_outer_multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
+                         CoOrdinate({2, 3}), CoOrdinate({0, 1}));
+
   Tensor<float> ground_truth(520);
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 3; j++) {
@@ -577,10 +596,15 @@ void sparse_multiply_offsetcrd() {
   IndexedTensor<float> ground_truth_indexed(ground_truth,
                                             CoOrdinate({0, 1, 2, 3}));
   IndexedTensor<float> i_indexed(I, CoOrdinate({0, 1, 2, 3}));
+
+  IndexedTensor<float> inout_indexed(I_inout, CoOrdinate({0, 1, 2, 3}));
   assert(i_indexed == ground_truth_indexed);
   std::cout << "precision 100%" << std::endl;
   assert(ground_truth_indexed == i_indexed);
   std::cout << "recall 100%" << std::endl;
+  assert(inout_indexed == ground_truth_indexed);
+  assert(ground_truth_indexed == inout_indexed);
+  std::cout<<"Inner outer matches ground truth"<<std::endl;
 }
 
 void sparse_multiply_extrnonly() {
@@ -622,6 +646,9 @@ void sparse_multiply_extrnonly() {
   Tensor<float> I = T0.multiply<float>(T1, CoOrdinate({1, 2}), CoOrdinate({}),
                                        CoOrdinate({0, 1}), CoOrdinate({}));
 
+  Tensor<float> I_inout = T0.inner_outer_multiply<float>(T1, CoOrdinate({1, 2}), CoOrdinate({}),
+                                       CoOrdinate({0, 1}), CoOrdinate({}));
+
   Tensor<float> ground_truth(520);
   for (int i = 0; i < 6; i++) {
     for (int j = 0; j < 7; j++) {
@@ -648,10 +675,14 @@ void sparse_multiply_extrnonly() {
   IndexedTensor<float> ground_truth_indexed(ground_truth,
                                             CoOrdinate({0, 1}));
   IndexedTensor<float> i_indexed(I, CoOrdinate({0, 1}));
+  IndexedTensor<float> inout_indexed(I_inout, CoOrdinate({0, 1}));
   assert(i_indexed == ground_truth_indexed);
   std::cout << "precision 100%" << std::endl;
   assert(ground_truth_indexed == i_indexed);
   std::cout << "recall 100%" << std::endl;
+  assert(inout_indexed == ground_truth_indexed);
+  assert(ground_truth_indexed == inout_indexed);
+  std::cout << "inner outer matches ground truth" << std::endl;
 }
 
 void teov_dlmop_opcount() {
@@ -684,8 +715,24 @@ Tensor<densevec> tevv_dlmop_fillvalues(Tensor<double>& dtevv, Tensor<densevec>& 
                                                                        start)
                      .count()
               << " microseconds" << std::endl;
+    start = std::chrono::high_resolution_clock::now();
     Tensor<densevec> result2 = dtevv.multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
+    end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for full outer kernel "
+              << std::chrono::duration_cast<std::chrono::microseconds>(end -
+                                                                       start)
+                     .count()
+              << " microseconds" << std::endl;
     std::cout<<"Size of result2 is "<<result2.get_size()<<std::endl;
+    start = std::chrono::high_resolution_clock::now();
+    Tensor<densevec> result_inout = dtevv.inner_outer_multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
+    end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time taken for inner outer kernel "
+              << std::chrono::duration_cast<std::chrono::microseconds>(end -
+                                                                       start)
+                     .count()
+              << " microseconds" << std::endl;
+    std::cout<<"Size of result_inout is "<<result_inout.get_size()<<std::endl;
     return result;
 }
 
