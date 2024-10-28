@@ -1,11 +1,12 @@
 #ifndef CONTRACT_HPP
 #define CONTRACT_HPP
-#include "types.hpp"
 #include "coordinate.hpp"
+#include "types.hpp"
 #include <algorithm>
 #include <boost/functional/hash.hpp>
-#include <iostream>
 #include <chrono>
+#include <forward_list>
+#include <iostream>
 #include <random>
 #include <ranges>
 #include <tsl/hopscotch_map.h>
@@ -49,9 +50,7 @@ public:
     return str;
   }
   int get_index(int dim) { return coords.get_index(dim); }
-  DT get_data() {
-    return data;
-  }
+  DT get_data() { return data; }
   void set_zero();
   void operator+=(DT other) {
     data += other;
@@ -60,30 +59,25 @@ public:
     }
   }
 
-  CoOrdinate& get_coords() { return coords; }
+  CoOrdinate &get_coords() { return coords; }
 
   // Constructor for a given value and coordinates
   NNZ(DT data, int dimensionality, int *coords)
       : data(data), coords(dimensionality, coords) {}
   NNZ(DT data, CoOrdinate coords) : data(data), coords(coords) {}
-  NNZ(DT data, BoundedCoordinate bc): data(data){
-      std::vector<int> vecords;
-      for(int i = 0; i < bc.get_dimensionality(); i++){
-          vecords.push_back(bc.get_coordinate(i));
-      }
-      coords = CoOrdinate(vecords);
+  NNZ(DT data, BoundedCoordinate bc) : data(data) {
+    std::vector<int> vecords;
+    for (int i = 0; i < bc.get_dimensionality(); i++) {
+      vecords.push_back(bc.get_coordinate(i));
+    }
+    coords = CoOrdinate(vecords);
   }
   bool operator==(const NNZ &other) const {
     return data == other.data && coords == other.coords;
   }
 };
-template<> void NNZ<double>::set_zero(){
-    data = 0.0;
-}
-template<> void NNZ<float>::set_zero(){
-    data = 0.0;
-}
-
+template <> void NNZ<double>::set_zero() { data = 0.0; }
+template <> void NNZ<float>::set_zero() { data = 0.0; }
 
 template <class DT> class Tensor;
 class SymbolicTensor {
@@ -107,11 +101,11 @@ class SymbolicTensor {
         shape[i] += 1;
       }
       std::vector<int> zeroindexed_shape;
-      for(int i = 0; i < shape.size(); i++){
-          zeroindexed_shape.push_back(shape[i] - 1);
+      for (int i = 0; i < shape.size(); i++) {
+        zeroindexed_shape.push_back(shape[i] - 1);
       }
-      for(auto &ind:indices){
-          ind.set_shape(zeroindexed_shape);
+      for (auto &ind : indices) {
+        ind.set_shape(zeroindexed_shape);
       }
     }
   }
@@ -144,9 +138,7 @@ public:
       indices.emplace_back(*it);
     }
   }
-  SymbolicTensor(CoOrdinate singleton){
-      indices.push_back(singleton);
-  }
+  SymbolicTensor(CoOrdinate singleton) { indices.push_back(singleton); }
   int get_size() { return indices.size(); }
   std::vector<int> get_shape() {
     _infer_shape();
@@ -208,8 +200,8 @@ public:
         for (auto &leftcord : entry.second) {
           for (auto &rightcord : ref->second) {
             CoOrdinate batch_coords = leftcord.first;
-            //CoOrdinate external_coords =
-            //    CoOrdinate(leftcord.second, rightcord.second);
+            // CoOrdinate external_coords =
+            //     CoOrdinate(leftcord.second, rightcord.second);
             CoOrdinate output_coords =
                 CoOrdinate(batch_coords, leftcord.second, rightcord.second);
             output.insert(output_coords);
@@ -255,15 +247,20 @@ public:
     return {output, dense_cost};
   }
 
-  std::pair<SymbolicTensor, double> contract(SymbolicTensor &other, CoOrdinate left_contraction,
-                          CoOrdinate left_batch, CoOrdinate right_contraction,
-                          CoOrdinate right_batch) {
-      auto start = std::chrono::high_resolution_clock::now();
-      tsl::hopscotch_set<CoOrdinate> output_coords = this->output_shape(
+  std::pair<SymbolicTensor, double> contract(SymbolicTensor &other,
+                                             CoOrdinate left_contraction,
+                                             CoOrdinate left_batch,
+                                             CoOrdinate right_contraction,
+                                             CoOrdinate right_batch) {
+    auto start = std::chrono::high_resolution_clock::now();
+    tsl::hopscotch_set<CoOrdinate> output_coords = this->output_shape(
         other, left_contraction, left_batch, right_contraction, right_batch);
     auto end = std::chrono::high_resolution_clock::now();
-    double time_taken =  std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    return {SymbolicTensor(output_coords.begin(), output_coords.end()), time_taken};
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    return {SymbolicTensor(output_coords.begin(), output_coords.end()),
+            time_taken};
   }
 };
 
@@ -306,10 +303,10 @@ public:
   }
 };
 
-
 template <class DT> class IndexedTensor {
   using hashmap_vals =
-      tsl::hopscotch_map<BoundedCoordinate, std::vector<std::pair<BoundedCoordinate, DT>>>;
+      tsl::hopscotch_map<BoundedCoordinate,
+                         std::vector<std::pair<BoundedCoordinate, DT>>>;
 
 public:
   hashmap_vals indexed_tensor;
@@ -323,7 +320,8 @@ public:
   IndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
     base_tensor._infer_shape();
     shape = base_tensor.get_shape_ref();
-    BoundedPosition filter_pos = BoundedPosition(index_coords.begin(), index_coords.end());
+    BoundedPosition filter_pos =
+        BoundedPosition(index_coords.begin(), index_coords.end());
     for (auto &nnz : base_tensor) {
       BoundedCoordinate full_coordinate = nnz.get_coords().get_bounded(shape);
       BoundedCoordinate index = full_coordinate.gather(filter_pos);
@@ -337,7 +335,7 @@ public:
     }
   }
   DT get_valat(CoOrdinate index_coords, CoOrdinate rem_coords) {
-      BoundedCoordinate remaining_coords = rem_coords.get_bounded(shape);
+    BoundedCoordinate remaining_coords = rem_coords.get_bounded(shape);
     auto it = indexed_tensor.find(index_coords.get_bounded(shape));
     if (it != indexed_tensor.end()) {
       for (auto &pair : it.value()) {
@@ -390,6 +388,52 @@ public:
     return true;
   }
 };
+
+template <class DT> class OutputTensor {
+private:
+  using sparse_acc = tsl::hopscotch_map<OutputCoordinate, DT>;
+  std::forward_list<std::pair<BoundedCoordinate, sparse_acc>> nonzeros;
+
+public:
+  bool is_same_row(BoundedCoordinate &left_ext) {
+    if (this->nonzeros.empty())
+      return true;
+    if (this->nonzeros.front().first == left_ext)
+      return true;
+    return false;
+  }
+  void add_row(BoundedCoordinate left_ext) {
+    nonzeros.push_front({left_ext, {}});
+  }
+  void update_last_row(OutputCoordinate& br, DT data) {
+    sparse_acc& last_row = nonzeros.front().second;
+    auto col_entry = last_row.find(br);
+    if (col_entry != last_row.end()) {
+      col_entry.value() += data;
+    } else {
+      last_row[br] = data;
+    }
+  }
+  Tensor<DT> drain() {
+    Tensor<DT> result;
+    for (auto &row : nonzeros) {
+      for (auto &nnz : row.second) {
+        CoOrdinate batch = nnz.first.get_batch().as_coordinate();
+        CoOrdinate leftex = row.first.as_coordinate();
+        CoOrdinate rightex = nnz.first.get_right().as_coordinate();
+        result.get_nonzeros().push_back(
+            NNZ<DT>(nnz.second, CoOrdinate(batch, leftex, rightex)));
+      }
+    }
+    return result;
+  }
+  int get_nnz_count() {
+    return std::accumulate(
+        nonzeros.begin(), nonzeros.end(), 0,
+        [](int old_count, auto row) { return old_count + row.second.size(); });
+  }
+};
+
 template <class DT> class Tensor {
 private:
   std::vector<NNZ<DT>> nonzeros;
@@ -416,10 +460,10 @@ public:
   }
   void write(std::string fname);
   int get_dimensionality() {
-      if(dimensionality == 42){
-          this->_infer_dimensionality();
-      }
-      return dimensionality;
+    if (dimensionality == 42) {
+      this->_infer_dimensionality();
+    }
+    return dimensionality;
   }
   // Constructor for a tensor of given shape and number of non-zeros, fills with
   // random values and indices
@@ -432,21 +476,21 @@ public:
     }
   }
   void delete_old_values() {
-      //TODO: might be a leak....but need to replace with smart pointers maybe.
-    //if constexpr (std::is_class<DT>::value) {
-    //  for (auto &nnz : nonzeros) {
-    //    nnz.get_data().free();
-    //  }
-    //}
+    // TODO: might be a leak....but need to replace with smart pointers maybe.
+    // if constexpr (std::is_class<DT>::value) {
+    //   for (auto &nnz : nonzeros) {
+    //     nnz.get_data().free();
+    //   }
+    // }
     nonzeros.clear();
   }
   // Make a tensor with just ones at given positions
   template <class It> Tensor(It begin, It end) {
     for (auto it = begin; it != end; it++) {
       if constexpr (std::is_class<DT>::value) {
-        nonzeros.emplace_back(DT(), *it);
+              nonzeros.emplace_back(DT(), *it);
       } else {
-        nonzeros.emplace_back(1.0, *it);
+              nonzeros.emplace_back(1.0, *it);
       }
     }
     this->_infer_dimensionality();
@@ -455,9 +499,9 @@ public:
   Tensor(SymbolicTensor &sym) {
     for (auto &cord : sym) {
       if constexpr (std::is_class<DT>::value) {
-        nonzeros.emplace_back(DT(), cord);
+              nonzeros.emplace_back(DT(), cord);
       } else {
-        nonzeros.emplace_back(0.0, cord);
+              nonzeros.emplace_back(0.0, cord);
       }
     }
     this->_infer_dimensionality();
@@ -472,9 +516,9 @@ public:
     }
   }
   std::string get_shape_string() {
-    if(dimensionality == 42){
-        this->_infer_dimensionality();
-        this->_infer_shape();
+    if (dimensionality == 42) {
+      this->_infer_dimensionality();
+      this->_infer_shape();
     }
     std::string str = "";
     for (int i = 0; i < dimensionality; i++) {
@@ -482,10 +526,10 @@ public:
     }
     return str;
   }
-  int* get_shape_ref() {
-    if(dimensionality == 42){
-        this->_infer_dimensionality();
-        this->_infer_shape();
+  int *get_shape_ref() {
+    if (dimensionality == 42) {
+      this->_infer_dimensionality();
+      this->_infer_shape();
     }
     return shape;
   }
@@ -494,19 +538,19 @@ public:
     if (nonzeros.size() > 0) {
       shape = new int[dimensionality];
       for (int i = 0; i < dimensionality; i++) {
-        shape[i] = 0;
+              shape[i] = 0;
       }
       for (auto &nnz : nonzeros) {
-        auto coords = nnz.get_coords();
-        for (int i = 0; i < dimensionality; i++) {
-          if (coords.get_index(i) > shape[i]) {
-            shape[i] = coords.get_index(i);
-          }
-        }
+              auto coords = nnz.get_coords();
+              for (int i = 0; i < dimensionality; i++) {
+                if (coords.get_index(i) > shape[i]) {
+                  shape[i] = coords.get_index(i);
+                }
+              }
       }
       std::vector<int> shape_vec(shape, shape + dimensionality);
-      for(auto &nnz:nonzeros){
-          nnz.get_coords().set_shape(shape_vec);
+      for (auto &nnz : nonzeros) {
+              nnz.get_coords().set_shape(shape_vec);
       }
     }
   }
@@ -515,7 +559,7 @@ public:
     for (auto &nnz : nonzeros) {
       auto this_coords = nnz.get_coords();
       if (this_coords == coords) {
-        return nnz.get_data();
+              return nnz.get_data();
       } else {
       }
     }
@@ -536,7 +580,7 @@ public:
         right_symbolic, left_contr, left_batch, right_contr, right_batch);
   }
 
-  //does not multiply data, just returns the coordinates
+  // does not multiply data, just returns the coordinates
   Tensor contract(Tensor &other, CoOrdinate left_contraction,
                   CoOrdinate left_batch, CoOrdinate right_contraction,
                   CoOrdinate right_batch) {
@@ -559,10 +603,14 @@ public:
     IndexedTensor<RIGHT> right_indexed =
         IndexedTensor<RIGHT>(other, right_idx_pos);
 
-    //tsl::hopscotch_map<OutputCoordinate, RES, std::hash<OutputCoordinate>, std::equal_to<OutputCoordinate>, std::allocator<std::pair<OutputCoordinate, RES>>, (unsigned int)62, (bool)0, tsl::hh::prime_growth_policy> result;
+    // tsl::hopscotch_map<OutputCoordinate, RES, std::hash<OutputCoordinate>,
+    // std::equal_to<OutputCoordinate>,
+    // std::allocator<std::pair<OutputCoordinate, RES>>, (unsigned int)62,
+    // (bool)0, tsl::hh::prime_growth_policy> result;
     tsl::hopscotch_map<OutputCoordinate, RES> result;
 
-    //tsl::hopscotch_map<OutputCoordinate, RES, ..., GrowthPolicy=tsl::hh::prime_growth_policy> result;
+    // tsl::hopscotch_map<OutputCoordinate, RES, ...,
+    // GrowthPolicy=tsl::hh::prime_growth_policy> result;
     std::vector<int> batch_pos_afterhash(left_batch.get_dimensionality());
     std::iota(batch_pos_afterhash.begin(), batch_pos_afterhash.end(), 0);
     BoundedPosition batchpos = BoundedPosition(batch_pos_afterhash);
@@ -577,55 +625,58 @@ public:
       auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
       if (right_entry != right_indexed.indexed_tensor.end()) {
 
-        for (auto &left_ev :
-             left_entry.second) { // loop over (e_l, nnz_l): external left, nnz
-                                  // at that external left.
-          for (auto &right_ev : right_entry->second) {
-            BoundedCoordinate left_bc = left_entry.first;
+              for (auto &left_ev :
+                   left_entry.second) { // loop over (e_l, nnz_l): external
+                                        // left, nnz at that external left.
+                for (auto &right_ev : right_entry->second) {
+                  BoundedCoordinate left_bc = left_entry.first;
 
-            BoundedCoordinate batch_coords = left_bc.gather(
-                batchpos); // assumes that batch positions are leftmost, so
-                           // they will work with a left subset.
-            BoundedCoordinate left_external = left_ev.first;
-            BoundedCoordinate right_external = right_ev.first;
+                  BoundedCoordinate batch_coords = left_bc.gather(
+                      batchpos); // assumes that batch positions are leftmost,
+                                 // so they will work with a left subset.
+                  BoundedCoordinate left_external = left_ev.first;
+                  BoundedCoordinate right_external = right_ev.first;
 
-            // CoOrdinate output_coords =
-            //     CoOrdinate(batch_coords, left_ev.first, right_ev.first);
-            OutputCoordinate output_coords =
-                OutputCoordinate(batch_coords, left_external, right_external);
-            RES outp;
-            if constexpr (std::is_same<DT, densevec>() &&
-                          std::is_same<RIGHT, densevec>() &&
-                          std::is_same<RES, densemat>()) {
-              outp = left_ev.second.densevec::outer(right_ev.second);
-            } else if constexpr (std::is_same<DT, densemat>() &&
-                                 std::is_same<RIGHT, densemat>() &&
-                                 std::is_same<RES, double>()) {
-              outp = left_ev.second.mult_reduce(right_ev.second);
+                  // CoOrdinate output_coords =
+                  //     CoOrdinate(batch_coords, left_ev.first,
+                  //     right_ev.first);
+                  OutputCoordinate output_coords = OutputCoordinate(
+                      batch_coords, left_external, right_external);
+                  RES outp;
+                  if constexpr (std::is_same<DT, densevec>() &&
+                                std::is_same<RIGHT, densevec>() &&
+                                std::is_same<RES, densemat>()) {
+                    outp = left_ev.second.densevec::outer(right_ev.second);
+                  } else if constexpr (std::is_same<DT, densemat>() &&
+                                       std::is_same<RIGHT, densemat>() &&
+                                       std::is_same<RES, double>()) {
+                    outp = left_ev.second.mult_reduce(right_ev.second);
 
-            } else {
-              outp = left_ev.second * right_ev.second;
-            }
-            auto result_ref = result.find(output_coords);
-            counter++;
-            if (result_ref != result.end()) {
-              result_ref.value() += outp;
-            } else {
-              result[output_coords] = outp;
-            }
-          }
-        }
+                  } else {
+                    outp = left_ev.second * right_ev.second;
+                  }
+                  auto result_ref = result.find(output_coords);
+                  counter++;
+                  if (result_ref != result.end()) {
+                    result_ref.value() += outp;
+                  } else {
+                    result[output_coords] = outp;
+                  }
+                }
+              }
       }
     }
-    std::cout<<"Overflow size "<<result.overflow_size()<<std::endl;
-    std::cout<<"Result NNZ count "<<result.size()<<std::endl;
-    std::cout<<"Number of calls to find "<<counter<<std::endl;
-    std::cout<<"Number of calls to == "<< OutputCoordinate::get_equality_count()<<std::endl;
+    std::cout << "Overflow size " << result.overflow_size() << std::endl;
+    std::cout << "Result NNZ count " << result.size() << std::endl;
+    std::cout << "Number of calls to find " << counter << std::endl;
+    std::cout << "Number of calls to == "
+              << OutputCoordinate::get_equality_count() << std::endl;
     start = std::chrono::high_resolution_clock::now();
     Tensor<RES> result_tensor(result.size());
 
     for (auto nnz : result) {
-      result_tensor.get_nonzeros().push_back(NNZ<RES>(nnz.second, nnz.first.merge()));
+      result_tensor.get_nonzeros().push_back(
+          NNZ<RES>(nnz.second, nnz.first.merge()));
     }
     end = std::chrono::high_resolution_clock::now();
     time_taken =
@@ -645,6 +696,8 @@ public:
     //    for coiter
     //       for r
 
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
     this->_infer_dimensionality();
     this->_infer_shape();
     other._infer_dimensionality();
@@ -662,66 +715,78 @@ public:
     CoOrdinate right_coiteration = CoOrdinate(right_batch, right_contr);
     IndexedTensor<RIGHT> right_indexed =
         IndexedTensor<RIGHT>(other, right_coiteration);
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
 
-    tsl::hopscotch_map<OutputCoordinate, RES> result;
-
-
+    // tsl::hopscotch_map<OutputCoordinate, RES> result;
+    start = std::chrono::high_resolution_clock::now();
+    OutputTensor<RES> result;
     for (auto &left_slice : left_indexed) {
       BoundedCoordinate left_ext_cordinate = left_slice.first;
+      result.add_row(left_ext_cordinate);
       for (auto left_nnz : left_slice.second) {
-        BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
-        auto right_slice = right_indexed.indexed_tensor.find(left_nnz.first);
-        if (right_slice != right_indexed.indexed_tensor.end()) {
-          // There is atleast one nnz matching
-          for (auto &right_nnz : right_slice->second) {
-            BoundedCoordinate right_ext_cordinate = right_nnz.first;
-            DT left_val = left_nnz.second;
-            RIGHT right_val = right_nnz.second;
-            RES outp;
-            if constexpr (std::is_same<DT, densevec>() &&
-                          std::is_same<RIGHT, densevec>() &&
-                          std::is_same<RES, densemat>()) {
-              outp = left_val.densevec::outer(right_val);
-            } else if constexpr (std::is_same<DT, densemat>() &&
-                                 std::is_same<RIGHT, densemat>() &&
-                                 std::is_same<RES, double>()) {
-              outp = left_val.mult_reduce(right_val);
+              BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
+              auto right_slice =
+                  right_indexed.indexed_tensor.find(left_nnz.first);
+              if (right_slice != right_indexed.indexed_tensor.end()) {
+                // There is atleast one nnz matching
+                for (auto &right_nnz : right_slice->second) {
+                  BoundedCoordinate right_ext_cordinate = right_nnz.first;
+                  DT left_val = left_nnz.second;
+                  RIGHT right_val = right_nnz.second;
+                  RES outp;
+                  if constexpr (std::is_same<DT, densevec>() &&
+                                std::is_same<RIGHT, densevec>() &&
+                                std::is_same<RES, densemat>()) {
+                    outp = left_val.densevec::outer(right_val);
+                  } else if constexpr (std::is_same<DT, densemat>() &&
+                                       std::is_same<RIGHT, densemat>() &&
+                                       std::is_same<RES, double>()) {
+                    outp = left_val.mult_reduce(right_val);
 
-            } else {
-              outp = left_val * right_val;
-            }
-            OutputCoordinate output_coords = OutputCoordinate(
-                batch_coord, left_ext_cordinate, right_ext_cordinate);
-            auto result_ref = result.find(output_coords);
-            if (result_ref != result.end()) {
-              result_ref.value() += outp;
-            } else {
-              result[output_coords] = outp;
-            }
-          }
-        }
+                  } else {
+                    outp = left_val * right_val;
+                  }
+                  OutputCoordinate output_coords = OutputCoordinate(
+                      batch_coord, BoundedCoordinate(), right_ext_cordinate);
+                  result.update_last_row(output_coords, outp);
+                  //result.is_same_row(left_ext_cordinate); //TODO: remove before flight
+                  // auto result_ref = result.find(output_coords);
+                  // if (result_ref != result.end()) {
+                  //   result_ref.value() += outp;
+                  // } else {
+                  //   result[output_coords] = outp;
+                  // }
+                }
+              }
       }
     }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to contract: " << time_taken << std::endl;
+    //std::cout<<"Got "<<result.get_nnz_count()<<" nonzeros"<<std::endl;
 
-    Tensor<RES> result_tensor(result.size());
+    Tensor<RES> result_tensor = result.drain();
 
-    for (auto nnz : result) {
-      result_tensor.get_nonzeros().push_back(
-          NNZ<RES>(nnz.second, nnz.first.merge()));
-    }
     return result_tensor;
   }
 
-  //Very hacky in-place multiply, need to redo if it is really needed.
+  // Very hacky in-place multiply, need to redo if it is really needed.
   template <class L, class R>
   void fill_values(Tensor<L> &left, Tensor<R> &right, CoOrdinate left_contr,
                    CoOrdinate left_batch, CoOrdinate right_contr,
                    CoOrdinate right_batch) {
-      // make result tensor as the multiply of Tensor left and Tensor right
-      Tensor<DT> result = left.template multiply<DT>(right, left_contr, left_batch, right_contr, right_batch);
+    // make result tensor as the multiply of Tensor left and Tensor right
+    Tensor<DT> result = left.template multiply<DT>(
+        right, left_contr, left_batch, right_contr, right_batch);
 
-
-    //TODO: remove this so that the next iteration can use the non-zero positions.
+    // TODO: remove this so that the next iteration can use the non-zero
+    // positions.
     if (this->get_nonzeros().size() != 0) {
       this->delete_old_values();
     }
@@ -749,7 +814,7 @@ public:
       indexed_tensor[nnz.get_coords()] = nnz.get_data();                       \
     }                                                                          \
     nonzeros.clear();                                                          \
-    for (auto &nnz : (*other)) {                                                  \
+    for (auto &nnz : (*other)) {                                               \
       auto ref = indexed_tensor.find(nnz.get_coords());                        \
       if (ref != indexed_tensor.end()) {                                       \
         ref.value() OP nnz.get_data();                                         \
@@ -770,9 +835,9 @@ public:
     for (auto &nnz : other->get_nonzeros()) {
       auto ref = indexed_tensor.find(nnz.get_coords());
       if (ref != indexed_tensor.end()) {
-        ref.value() += nnz.get_data();
+              ref.value() += nnz.get_data();
       } else {
-        nonzeros.push_back(nnz);
+              nonzeros.push_back(nnz);
       }
     }
     for (auto &entry : indexed_tensor) {
@@ -784,7 +849,7 @@ public:
   DT operator[](CoOrdinate cord) {
     for (auto &nnz : nonzeros) {
       if (nnz.get_coords() == cord) {
-        return nnz.get_data();
+              return nnz.get_data();
       }
     }
     return DT();

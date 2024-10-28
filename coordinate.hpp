@@ -12,6 +12,8 @@
 #define DIMENSIONALITY 6
 #define GOOD_PRIME 3145739
 
+class CoOrdinate;
+
 class BoundedPosition {
   short dimensions = 0;
   int positions[DIMENSIONALITY];
@@ -58,6 +60,10 @@ class BoundedCoordinate {
   //size_t linearization = -1;
 
 public:
+  BoundedCoordinate(){
+      // Give an empty coordinate
+      BoundedCoordinate(nullptr, nullptr, 0);
+  }
   BoundedCoordinate(int *coords, int *bounds, int dimensions) {
     for (int i = 0; i < dimensions; i++) {
       this->coords[i] = coords[i];
@@ -103,6 +109,7 @@ public:
                              right.get_dimensionality());
     //linearization = this->get_linearization();
   }
+  CoOrdinate as_coordinate() const;
   int get_dimensionality() const { return dimensions; }
   std::string to_string() const {
     std::string str = "";
@@ -244,6 +251,10 @@ public:
     else
       assert(false);
   }
+  //CoOrdinate as_coordinate(){
+  //    auto single_cord = this->merge();
+  //    return single_cord.as_coordinate();
+  //}
   // int get_dimensionality() const {
   //     return batch.get_dimensionality() + left_external.get_dimensionality()
   //     + right_external.get_dimensionality();
@@ -466,6 +477,14 @@ public:
     // return true;
   }
 };
+
+CoOrdinate BoundedCoordinate::as_coordinate() const {
+  std::vector<int> result;
+  for (int i = 0; i < dimensions; i++) {
+    result.push_back(coords[i]);
+  }
+  return result;
+}
 
 template <> struct std::hash<CoOrdinate> {
   std::size_t operator()(const CoOrdinate &c) const {
