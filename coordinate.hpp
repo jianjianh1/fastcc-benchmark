@@ -64,6 +64,18 @@ public:
       // Give an empty coordinate
       BoundedCoordinate(nullptr, nullptr, 0);
   }
+  // Pass in a sample cordinate with the same shape as what you expect for linearized.
+  // if you change the as_bigint method, this has to change.
+  BoundedCoordinate(uint64_t bigint, BoundedCoordinate const &sample_cord) {
+      dimensions = sample_cord.get_dimensionality();
+      uint64_t linearized =  bigint;
+      for (int iter = dimensions - 1; iter >= 0; iter--) {
+      bounds[iter] = sample_cord.get_bound(iter);
+      coords[iter] = linearized % (bounds[iter] + 1);
+      linearized = (linearized - coords[iter]) / (bounds[iter] + 1);
+      }
+      assert(this->as_bigint() == bigint); // TODO remove before flight
+  }
   BoundedCoordinate(int *coords, int *bounds, int dimensions) {
     for (int i = 0; i < dimensions; i++) {
       this->coords[i] = coords[i];
@@ -110,6 +122,9 @@ public:
     //linearization = this->get_linearization();
   }
   CoOrdinate as_coordinate() const;
+  uint64_t as_bigint() const{
+      return (uint64_t)this->get_linearization();
+  }
   int get_dimensionality() const { return dimensions; }
   std::string to_string() const {
     std::string str = "";
@@ -237,6 +252,9 @@ public:
             left_external.get_linearization() *
                 right_external.get_linear_bound() +
             right_external.get_linearization());
+  }
+  uint64_t as_bigint() const{
+      return (uint64_t)(this->linearization);
   }
   size_t get_min_hash() const {
     size_t batch_bound = batch.get_linear_bound();
