@@ -391,8 +391,10 @@ public:
 
 template <class DT> class OutputTensor {
 private:
-  using sparse_acc = tsl::hopscotch_map<OutputCoordinate, DT>;
-  std::forward_list<std::pair<BoundedCoordinate, sparse_acc>> nonzeros;
+  using lowest_map = tsl::hopscotch_map<BoundedCoordinate, DT>;
+  using middle_map = tsl::hopscotch_map<BoundedCoordinate, lowest_map>;
+  std::forward_list<std::pair<BoundedCoordinate, middle_map>> nonzeros;
+  lowest_map* current_lowest = nullptr;
 
 public:
   bool is_same_row(BoundedCoordinate &left_ext) {
@@ -405,24 +407,37 @@ public:
   void add_row(BoundedCoordinate left_ext) {
     nonzeros.push_front({left_ext, {}});
   }
-  void update_last_row(OutputCoordinate& br, DT data) {
-    sparse_acc& last_row = nonzeros.front().second;
-    auto col_entry = last_row.find(br);
-    if (col_entry != last_row.end()) {
+  void move_sliceptr(BoundedCoordinate &left_external, BoundedCoordinate &batch) {
+      //assumes you're talking about current row. it won't deduplicate across rows
+    assert(!this->nonzeros.empty());
+    assert(this->nonzeros.front().first == left_external);//TODO: can remove before flight.
+    middle_map &middle_slice = nonzeros.front().second;
+    auto lowest_iter = middle_slice.find(batch);
+    if (lowest_iter == middle_slice.end()) {
+      middle_slice[batch] = {};
+    }
+    current_lowest = &middle_slice[batch];
+  }
+  void update_last_row(BoundedCoordinate& right, DT data) {
+      //assumes we're in the correct first and middle slice, else no deduplication.
+    auto col_entry = current_lowest->find(right);
+    if (col_entry != current_lowest->end()) {
       col_entry.value() += data;
     } else {
-      last_row[br] = data;
+      (*current_lowest)[right] = data;
     }
   }
   Tensor<DT> drain() {
     Tensor<DT> result;
-    for (auto &row : nonzeros) {
-      for (auto &nnz : row.second) {
-        CoOrdinate batch = nnz.first.get_batch().as_coordinate();
-        CoOrdinate leftex = row.first.as_coordinate();
-        CoOrdinate rightex = nnz.first.get_right().as_coordinate();
-        result.get_nonzeros().push_back(
-            NNZ<DT>(nnz.second, CoOrdinate(batch, leftex, rightex)));
+    for (auto &first_slice : nonzeros) {
+      CoOrdinate leftex = first_slice.first.as_coordinate();
+      for (auto &second_slice : first_slice.second) {
+          CoOrdinate batch = second_slice.first.as_coordinate();
+        for (auto &nnz : second_slice.second) {
+          CoOrdinate rightex = nnz.first.as_coordinate();
+          result.get_nonzeros().push_back(
+              NNZ<DT>(nnz.second, CoOrdinate(batch, leftex, rightex)));
+        }
       }
     }
     return result;
@@ -729,6 +744,7 @@ public:
       result.add_row(left_ext_cordinate);
       for (auto left_nnz : left_slice.second) {
               BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
+              result.move_sliceptr(left_ext_cordinate, batch_coord);
               auto right_slice =
                   right_indexed.indexed_tensor.find(left_nnz.first);
               if (right_slice != right_indexed.indexed_tensor.end()) {
@@ -750,9 +766,9 @@ public:
                   } else {
                     outp = left_val * right_val;
                   }
-                  OutputCoordinate output_coords = OutputCoordinate(
-                      batch_coord, BoundedCoordinate(), right_ext_cordinate);
-                  result.update_last_row(output_coords, outp);
+                  //OutputCoordinate output_coords = OutputCoordinate(
+                  //    batch_coord, BoundedCoordinate(), right_ext_cordinate);
+                  result.update_last_row(right_ext_cordinate, outp);
                   //result.is_same_row(left_ext_cordinate); //TODO: remove before flight
                   // auto result_ref = result.find(output_coords);
                   // if (result_ref != result.end()) {
