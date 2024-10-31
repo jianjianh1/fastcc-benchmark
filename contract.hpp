@@ -449,6 +449,74 @@ public:
   }
 };
 
+template <class DT> class OutputTensorBigint{
+private:
+  using lowest_map = tsl::hopscotch_map<uint64_t, DT>;
+  using middle_map = tsl::hopscotch_map<uint64_t, lowest_map>;
+  std::forward_list<std::pair<uint64_t, middle_map>> nonzeros;
+  lowest_map* current_lowest = nullptr;
+
+public:
+  bool is_same_row(BoundedCoordinate &left_ext) {
+      uint64_t key = left_ext.as_bigint();
+
+    if (this->nonzeros.empty())
+      return true;
+    if (this->nonzeros.front().first == key)
+      return true;
+    return false;
+  }
+  void add_row(BoundedCoordinate& left_ext) {
+      uint64_t key = left_ext.as_bigint();
+    nonzeros.push_front({key, {}});
+  }
+  void move_sliceptr(BoundedCoordinate &left_external_cord, BoundedCoordinate &batch_cord) {
+      //assumes you're talking about current row. it won't deduplicate across rows
+      uint64_t left_external = left_external_cord.as_bigint();
+      uint64_t batch =  batch_cord.as_bigint();
+    assert(!this->nonzeros.empty());
+    assert(this->nonzeros.front().first == left_external);//TODO: can remove before flight.
+    middle_map &middle_slice = nonzeros.front().second;
+    auto lowest_iter = middle_slice.find(batch);
+    if (lowest_iter == middle_slice.end()) {
+      middle_slice[batch] = {};
+    }
+    current_lowest = &middle_slice[batch];
+  }
+  void update_last_row(BoundedCoordinate& right_cord, DT data) {
+      //assumes we're in the correct first and middle slice, else no deduplication.
+      uint64_t right = right_cord.as_bigint();
+    auto col_entry = current_lowest->find(right);
+    if (col_entry != current_lowest->end()) {
+      col_entry.value() += data;
+    } else {
+      (*current_lowest)[right] = data;
+    }
+  }
+  Tensor<DT> drain(BoundedCoordinate& sample_batch, BoundedCoordinate& sample_left, BoundedCoordinate& sample_right) {
+      //TODO make this way faster
+    Tensor<DT> result;
+    for (auto &first_slice : nonzeros) {
+      CoOrdinate leftex = BoundedCoordinate(first_slice.first, sample_left).as_coordinate();
+      for (auto &second_slice : first_slice.second) {
+          CoOrdinate batch = BoundedCoordinate(second_slice.first, sample_batch).as_coordinate();
+        for (auto &nnz : second_slice.second) {
+          CoOrdinate rightex = BoundedCoordinate(nnz.first, sample_right).as_coordinate();
+          result.get_nonzeros().push_back(
+              NNZ<DT>(nnz.second, CoOrdinate(batch, leftex, rightex)));
+        }
+      }
+    }
+    return result;
+  }
+  int get_nnz_count() {
+    return std::accumulate(
+        nonzeros.begin(), nonzeros.end(), 0,
+        [](int old_count, auto row) { return old_count + row.second.size(); });
+  }
+
+};
+
 template <class DT> class Tensor {
 private:
   std::vector<NNZ<DT>> nonzeros;
@@ -738,7 +806,7 @@ public:
 
     // tsl::hopscotch_map<OutputCoordinate, RES> result;
     start = std::chrono::high_resolution_clock::now();
-    OutputTensor<RES> result;
+    OutputTensorBigint<RES> result;
     for (auto &left_slice : left_indexed) {
       BoundedCoordinate left_ext_cordinate = left_slice.first;
       result.add_row(left_ext_cordinate);
@@ -787,7 +855,10 @@ public:
     std::cout << "Time taken to contract: " << time_taken << std::endl;
     //std::cout<<"Got "<<result.get_nnz_count()<<" nonzeros"<<std::endl;
 
-    Tensor<RES> result_tensor = result.drain();
+    BoundedCoordinate sample_batch = left_indexed.begin()->second.begin()->first.gather(batchpos);
+    BoundedCoordinate sample_left = left_indexed.begin()->first;
+    BoundedCoordinate sample_right = right_indexed.begin()->second.begin()->first;
+    Tensor<RES> result_tensor = result.drain(sample_batch, sample_left, sample_right);
 
     return result_tensor;
   }

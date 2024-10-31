@@ -57,7 +57,7 @@ class BoundedCoordinate {
   uint8_t dimensions = 0;
   uint16_t coords[DIMENSIONALITY];
   uint16_t bounds[DIMENSIONALITY];
-  //size_t linearization = -1;
+  size_t linearization = 0;
 
 public:
   BoundedCoordinate(){
@@ -82,7 +82,7 @@ public:
       this->bounds[i] = bounds[i];
     }
     this->dimensions = dimensions;
-    //linearization = this->get_linearization();
+    linearization = this->get_linearization();
   }
   BoundedCoordinate(BoundedCoordinate &left, BoundedCoordinate &right) {
     for (int i = 0; i < left.get_dimensionality(); i++) {
@@ -96,7 +96,7 @@ public:
     }
     dimensions += right.get_dimensionality();
     assert(dimensions <= DIMENSIONALITY);
-    //linearization = this->get_linearization();
+    linearization = this->get_linearization();
   }
   BoundedCoordinate(BoundedCoordinate &left, BoundedCoordinate &mid,
                     BoundedCoordinate &right) {
@@ -119,7 +119,7 @@ public:
     assert(dimensions <= DIMENSIONALITY);
     assert(dimensions == left.get_dimensionality() + mid.get_dimensionality() +
                              right.get_dimensionality());
-    //linearization = this->get_linearization();
+    linearization = this->get_linearization();
   }
   CoOrdinate as_coordinate() const;
   uint64_t as_bigint() const{
@@ -151,8 +151,8 @@ public:
     return result;
   }
   size_t get_linearization(int offset = 1) const {
-    //if (this->linearization != -1)
-    //  return this->linearization;
+    if (this->linearization != 0)
+      return this->linearization;
     size_t linearlized_cord = 0;
     for (int i = 0; i < this->get_dimensionality(); i++) {
       linearlized_cord += this->get_coordinate(i);
@@ -162,7 +162,7 @@ public:
     }
     return linearlized_cord;
   }
-  BoundedCoordinate gather(BoundedPosition &other) {
+  BoundedCoordinate gather(BoundedPosition &other) const {
     int res_cords[DIMENSIONALITY];
     int res_bounds[DIMENSIONALITY];
     assert(dimensions >= other.get_dimensionality());
@@ -193,20 +193,22 @@ public:
     return BoundedCoordinate(res_cords, res_bounds, res_dimensionality);
   }
   bool operator==(const BoundedCoordinate &other) const {
-    if (dimensions != other.get_dimensionality()) {
-      return false;
-    }
-    for (int i = 0; i < dimensions; i++) {
-      if (coords[i] != other.get_coordinate(i)) {
-        return false;
-      }
-    }
-    return true;
+    //if (dimensions != other.get_dimensionality()) {
+    //  return false;
+    //}
+    //for (int i = 0; i < dimensions; i++) {
+    //  if (coords[i] != other.get_coordinate(i)) {
+    //    return false;
+    //  }
+    //}
+    //return true;
+    return this->get_linearization() == other.get_linearization();
   }
 };
 template <> struct std::hash<BoundedCoordinate> {
   std::size_t operator()(const BoundedCoordinate &c) const {
-    return c.get_linearization();
+      size_t linearization = c.get_linearization(-1);
+    return std::hash<size_t>()(linearization);
   }
 };
 
