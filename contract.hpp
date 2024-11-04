@@ -20,6 +20,32 @@ template <typename T> static std::size_t hasharray(int size, T *arr) {
   return boost::hash_range(arr, arr + size);
 }
 
+template <class DT> class CompactNNZ{
+    CompactCordinate cord;
+    DT data;
+    public:
+    CompactNNZ(DT data, CompactCordinate cord): data(data), cord(cord){}
+};
+
+template <class DT> class CompactTensor{
+    int num_nonzeros = 0;
+    CompactNNZ<DT>* nonzeros = nullptr;
+    int iter = 0;
+    public:
+    CompactTensor(int num_nonzeros){
+        std::cout<<"Initialized with "<<num_nonzeros<<std::endl;
+        this->num_nonzeros = num_nonzeros;
+        nonzeros = (CompactNNZ<DT>*)malloc(num_nonzeros * sizeof(CompactNNZ<DT>));
+    }
+    void push_nnz(DT data, CompactCordinate cord){
+        if(iter >= num_nonzeros){
+            std::cerr << "Tried to push more nonzeros than allocated" << std::endl;
+            exit(1);
+        }
+        nonzeros[iter++] = CompactNNZ<DT>(data, cord);
+    }
+};
+
 template <class DT> class NNZ {
   DT data;
   CoOrdinate coords = CoOrdinate(0, nullptr);
@@ -451,7 +477,7 @@ public:
 
 template <class DT> class OutputTensorBigint{
 private:
-  using lowest_map = tsl::hopscotch_map<uint64_t, DT>;
+  using lowest_map = tsl::hopscotch_map<uint64_t, DT>; //TODO: this is of size 80k at max, seems like. maybe do SMJ
   using middle_map = tsl::hopscotch_map<uint64_t, lowest_map>;
   std::forward_list<std::pair<uint64_t, middle_map>> nonzeros;
   lowest_map* current_lowest = nullptr;
@@ -466,11 +492,11 @@ public:
       return true;
     return false;
   }
-  void add_row(BoundedCoordinate& left_ext) {
+  void add_row(const BoundedCoordinate& left_ext) {
       uint64_t key = left_ext.as_bigint();
     nonzeros.push_front({key, {}});
   }
-  void move_sliceptr(BoundedCoordinate &left_external_cord, BoundedCoordinate &batch_cord) {
+  void move_sliceptr(const BoundedCoordinate &left_external_cord,const BoundedCoordinate &batch_cord) {
       //assumes you're talking about current row. it won't deduplicate across rows
       uint64_t left_external = left_external_cord.as_bigint();
       uint64_t batch =  batch_cord.as_bigint();
@@ -483,7 +509,7 @@ public:
     }
     current_lowest = &middle_slice[batch];
   }
-  void update_last_row(BoundedCoordinate& right_cord, DT data) {
+  void update_last_row(const BoundedCoordinate& right_cord, DT data) {
       //assumes we're in the correct first and middle slice, else no deduplication.
       uint64_t right = right_cord.as_bigint();
     auto col_entry = current_lowest->find(right);
@@ -493,28 +519,37 @@ public:
       (*current_lowest)[right] = data;
     }
   }
-  Tensor<DT> drain(BoundedCoordinate& sample_batch, BoundedCoordinate& sample_left, BoundedCoordinate& sample_right) {
-      //TODO make this way faster
-    Tensor<DT> result;
+  CompactTensor<DT> drain(BoundedCoordinate &sample_batch,
+                          BoundedCoordinate &sample_left,
+                          BoundedCoordinate &sample_right) {
+    CompactTensor<DT> result(this->get_nnz_count());
     for (auto &first_slice : nonzeros) {
-      CoOrdinate leftex = BoundedCoordinate(first_slice.first, sample_left).as_coordinate();
+      // CoOrdinate leftex = BoundedCoordinate(first_slice.first,
+      // sample_left).as_coordinate();
       for (auto &second_slice : first_slice.second) {
-          CoOrdinate batch = BoundedCoordinate(second_slice.first, sample_batch).as_coordinate();
+        // CoOrdinate batch = BoundedCoordinate(second_slice.first,
+        // sample_batch).as_coordinate();
         for (auto &nnz : second_slice.second) {
-          CoOrdinate rightex = BoundedCoordinate(nnz.first, sample_right).as_coordinate();
-          result.get_nonzeros().push_back(
-              NNZ<DT>(nnz.second, CoOrdinate(batch, leftex, rightex)));
+          // CoOrdinate rightex = BoundedCoordinate(nnz.first,
+          // sample_right).as_coordinate();
+          CompactCordinate this_cord = CompactCordinate(
+              second_slice.first, sample_batch, first_slice.first, sample_left,
+              nnz.first, sample_right);
+          result.push_nnz(nnz.second, this_cord);
         }
       }
     }
     return result;
   }
   int get_nnz_count() {
-    return std::accumulate(
-        nonzeros.begin(), nonzeros.end(), 0,
-        [](int old_count, auto row) { return old_count + row.second.size(); });
+    int count = 0;
+    for (auto &top_slice : nonzeros) {
+      for (auto &middle_slice : top_slice.second) {
+        count += middle_slice.second.size();
+      }
+    }
+    return count;
   }
-
 };
 
 template <class DT> class Tensor {
@@ -771,7 +806,7 @@ public:
 
   // inner outer multiplication
   template <class RES, class RIGHT>
-  Tensor<RES> inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+  CompactTensor<RES> inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
                                    CoOrdinate left_batch,
                                    CoOrdinate right_contr,
                                    CoOrdinate right_batch) {
@@ -808,7 +843,7 @@ public:
     start = std::chrono::high_resolution_clock::now();
     OutputTensorBigint<RES> result;
     for (auto &left_slice : left_indexed) {
-      BoundedCoordinate left_ext_cordinate = left_slice.first;
+      const BoundedCoordinate& left_ext_cordinate = left_slice.first;
       result.add_row(left_ext_cordinate);
       for (auto left_nnz : left_slice.second) {
               BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
@@ -818,7 +853,7 @@ public:
               if (right_slice != right_indexed.indexed_tensor.end()) {
                 // There is atleast one nnz matching
                 for (auto &right_nnz : right_slice->second) {
-                  BoundedCoordinate right_ext_cordinate = right_nnz.first;
+                  const BoundedCoordinate& right_ext_cordinate = right_nnz.first;
                   DT left_val = left_nnz.second;
                   RIGHT right_val = right_nnz.second;
                   RES outp;
@@ -858,7 +893,7 @@ public:
     BoundedCoordinate sample_batch = left_indexed.begin()->second.begin()->first.gather(batchpos);
     BoundedCoordinate sample_left = left_indexed.begin()->first;
     BoundedCoordinate sample_right = right_indexed.begin()->second.begin()->first;
-    Tensor<RES> result_tensor = result.drain(sample_batch, sample_left, sample_right);
+    CompactTensor<RES> result_tensor = result.drain(sample_batch, sample_left, sample_right);
 
     return result_tensor;
   }

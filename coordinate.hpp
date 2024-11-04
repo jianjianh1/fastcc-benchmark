@@ -52,6 +52,7 @@ public:
   }
 };
 
+
 // This is only for tensors with co-ordinates up to 16 bits, ie 65k
 class BoundedCoordinate {
   uint8_t dimensions = 0;
@@ -305,6 +306,64 @@ template <> struct std::hash<OutputCoordinate> {
     //      linearlized_cord *= c.get_bound(i + 1);
     //    }
     //  }
+  }
+};
+
+class CompactCordinate {
+  // char dimensionality;
+  uint32_t *coords = nullptr;
+
+public:
+  CompactCordinate(uint64_t bigint, BoundedCoordinate const &sample_cord) {
+    int dimensionality = sample_cord.get_dimensionality();
+    coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
+    uint64_t linearized = bigint;
+    for (int iter = dimensionality - 1; iter >= 0; iter--) {
+      // bounds[iter] = sample_cord.get_bound(iter);
+      coords[iter] = linearized % (sample_cord.get_bound(iter) + 1);
+      linearized =
+          (linearized - coords[iter]) / (sample_cord.get_bound(iter) + 1);
+    }
+  }
+  CompactCordinate(uint64_t batchint, BoundedCoordinate const &batch_sample,
+                   uint64_t leftint, BoundedCoordinate const &left_sample,
+                   uint64_t rightint, BoundedCoordinate const &right_sample) {
+    int dimensionality = batch_sample.get_dimensionality() +
+                         left_sample.get_dimensionality() +
+                         right_sample.get_dimensionality();
+    coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
+    uint64_t linearized = batchint;
+    if (linearized > 0) {
+      for (int iter = batch_sample.get_dimensionality() - 1; iter >= 0;
+           iter--) {
+        coords[iter] = linearized % (batch_sample.get_bound(iter) + 1);
+        linearized =
+            (linearized - coords[iter]) / (batch_sample.get_bound(iter) + 1);
+      }
+    }
+    linearized = leftint;
+    if (linearized > 0) {
+      for (int iter = left_sample.get_dimensionality() - 1; iter >= 0; iter--) {
+        coords[iter + batch_sample.get_dimensionality()] =
+            linearized % (left_sample.get_bound(iter) + 1);
+        linearized =
+            (linearized - coords[iter + batch_sample.get_dimensionality()]) /
+            (left_sample.get_bound(iter) + 1);
+      }
+    }
+    linearized = rightint;
+    if (linearized > 0) {
+      for (int iter = right_sample.get_dimensionality() - 1; iter >= 0;
+           iter--) {
+        coords[iter + batch_sample.get_dimensionality() +
+               left_sample.get_dimensionality()] =
+            linearized % (right_sample.get_bound(iter) + 1);
+        linearized =
+            (linearized - coords[iter + batch_sample.get_dimensionality() +
+                                 left_sample.get_dimensionality()]) /
+            (right_sample.get_bound(iter) + 1);
+      }
+    }
   }
 };
 
