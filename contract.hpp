@@ -48,6 +48,7 @@ public:
     }
     nonzeros[iter++] = CompactNNZ<DT>(data, cord);
   }
+  int get_nnz_count() { return iter; }
   Tensor<DT> to_tensor();
 };
 
@@ -467,6 +468,105 @@ public:
   }
 };
 
+template <class DT> class OutputTensorSort {
+private:
+  using lowest_map =
+      std::vector<BigintNNZ<DT>>; // TODO: this is of size 80k at max,
+                                        // seems like. maybe do SMJ
+  using middle_map = tsl::hopscotch_map<uint64_t, lowest_map>;
+  std::forward_list<std::pair<uint64_t, middle_map>> nonzeros;
+  lowest_map *current_lowest = nullptr;
+
+public:
+  bool is_same_row(BoundedCoordinate &left_ext) {
+    uint64_t key = left_ext.as_bigint();
+
+    if (this->nonzeros.empty())
+      return true;
+    if (this->nonzeros.front().first == key)
+      return true;
+    return false;
+  }
+  void add_row(const BoundedCoordinate &left_ext) {
+    uint64_t key = left_ext.as_bigint();
+    nonzeros.push_front({key, {}});
+  }
+  void move_sliceptr(const BoundedCoordinate &left_external_cord,
+                     const BoundedCoordinate &batch_cord) {
+    // assumes you're talking about current row. it won't deduplicate across
+    // rows
+    uint64_t left_external = left_external_cord.as_bigint();
+    uint64_t batch = batch_cord.as_bigint();
+    assert(!this->nonzeros.empty());
+    assert(this->nonzeros.front().first ==
+           left_external); // TODO: can remove before flight.
+    middle_map &middle_slice = nonzeros.front().second;
+    auto lowest_iter = middle_slice.find(batch);
+    if (lowest_iter == middle_slice.end()) {
+      middle_slice[batch] = {};
+    }
+    current_lowest = &middle_slice[batch];
+    //current_lowest->reserve(1000);
+  }
+  void update_last_row(const BoundedCoordinate &right_cord, DT data) {
+    // assumes we're in the correct first and middle slice, else no
+    // deduplication.
+    uint64_t right = right_cord.as_bigint();
+    current_lowest->emplace_back(right, data);
+  }
+  CompactTensor<DT> drain(BoundedCoordinate &sample_batch,
+                          BoundedCoordinate &sample_left,
+                          BoundedCoordinate &sample_right) {
+    CompactTensor<DT> result(this->get_nnz_count(),
+                             sample_batch.get_dimensionality() +
+                                 sample_left.get_dimensionality() +
+                                 sample_right.get_dimensionality());
+    for (auto &first_slice : nonzeros) {
+      // CoOrdinate leftex = BoundedCoordinate(first_slice.first,
+      // sample_left).as_coordinate();
+      for (auto s = first_slice.second.begin(); s != first_slice.second.end(); s++){
+          auto batch_cord = s->first;
+          auto &vecref = s.value();
+        // CoOrdinate batch = BoundedCoordinate(second_slice.first,
+        // sample_batch).as_coordinate();
+          std::sort(vecref.begin(), vecref.end(),
+                    [](auto a, auto b) { return a.get_bigint() < b.get_bigint(); });
+          DT sum = DT();
+          uint64_t last = vecref[0].get_bigint();
+        for (auto &nnz : vecref) {
+            if(nnz.get_bigint() == last){
+                sum += nnz.get_value();
+                continue;
+            }
+          // CoOrdinate rightex = BoundedCoordinate(nnz.first,
+          // sample_right).as_coordinate();
+          CompactCordinate this_cord = CompactCordinate(
+              batch_cord, sample_batch, first_slice.first, sample_left,
+              last, sample_right);
+          result.push_nnz(nnz.get_value(), this_cord);
+            last = nnz.get_bigint();
+            sum = nnz.get_value();
+        }
+        CompactCordinate this_cord = CompactCordinate(
+            batch_cord, sample_batch, first_slice.first, sample_left,
+            last, sample_right);
+        result.push_nnz(sum, this_cord);
+
+      }
+    }
+    return result;
+  }
+  size_t get_nnz_count() {
+    size_t count = 0;
+    for (auto &top_slice : nonzeros) {
+      for (auto &middle_slice : top_slice.second) {
+        count += middle_slice.second.size();
+      }
+    }
+    return count;
+  }
+};
+
 template <class DT> class Tensor {
 private:
   std::vector<NNZ<DT>> nonzeros;
@@ -812,6 +912,7 @@ public:
         right_indexed.begin()->second.begin()->first;
     CompactTensor<RES> result_tensor =
         result.drain(sample_batch, sample_left, sample_right);
+    std::cout<<"Got "<<result_tensor.get_nnz_count()<<" nonzeros"<<std::endl;
 
     return result_tensor;
   }

@@ -365,6 +365,16 @@ public:
   CoOrdinate as_coordinate(int dim) const;
 };
 
+
+template<class DT> class BigintNNZ {
+  uint64_t bigint;
+  DT value;
+public:
+  BigintNNZ(uint64_t bigint, DT value) : bigint(bigint), value(value) {}
+  uint64_t get_bigint() const { return bigint; }
+  DT get_value() const { return value; }
+};
+
 class CoOrdinate {
 #define BITWIDTH (512)
   std::vector<int> coords;
