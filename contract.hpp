@@ -16,34 +16,39 @@
 #include <variant>
 #include <vector>
 
-template <typename T> static std::size_t hasharray(int size, T *arr) {
-  return boost::hash_range(arr, arr + size);
-}
+template <class DT> class CompactNNZ {
+  CompactCordinate cord;
+  DT data;
 
-template <class DT> class CompactNNZ{
-    CompactCordinate cord;
-    DT data;
-    public:
-    CompactNNZ(DT data, CompactCordinate cord): data(data), cord(cord){}
+public:
+  CompactNNZ(DT data, CompactCordinate cord) : data(data), cord(cord) {}
+  DT get_data() { return data; }
+  CompactCordinate get_cord() { return cord; }
 };
 
-template <class DT> class CompactTensor{
-    int num_nonzeros = 0;
-    CompactNNZ<DT>* nonzeros = nullptr;
-    int iter = 0;
-    public:
-    CompactTensor(int num_nonzeros){
-        std::cout<<"Initialized with "<<num_nonzeros<<std::endl;
-        this->num_nonzeros = num_nonzeros;
-        nonzeros = (CompactNNZ<DT>*)malloc(num_nonzeros * sizeof(CompactNNZ<DT>));
+template <class DT> class Tensor;
+
+template <class DT> class CompactTensor {
+  int num_nonzeros = 0;
+  CompactNNZ<DT> *nonzeros = nullptr;
+  int iter = 0;
+  int dimensionality = 42;
+
+public:
+  CompactTensor(int num_nonzeros, int dimensionality) {
+    std::cout << "Initialized with " << num_nonzeros << std::endl;
+    this->num_nonzeros = num_nonzeros;
+    nonzeros = (CompactNNZ<DT> *)malloc(num_nonzeros * sizeof(CompactNNZ<DT>));
+    this->dimensionality = dimensionality;
+  }
+  void push_nnz(DT data, CompactCordinate cord) {
+    if (iter >= num_nonzeros) {
+      std::cerr << "Tried to push more nonzeros than allocated" << std::endl;
+      exit(1);
     }
-    void push_nnz(DT data, CompactCordinate cord){
-        if(iter >= num_nonzeros){
-            std::cerr << "Tried to push more nonzeros than allocated" << std::endl;
-            exit(1);
-        }
-        nonzeros[iter++] = CompactNNZ<DT>(data, cord);
-    }
+    nonzeros[iter++] = CompactNNZ<DT>(data, cord);
+  }
+  Tensor<DT> to_tensor();
 };
 
 template <class DT> class NNZ {
@@ -290,45 +295,6 @@ public:
   }
 };
 
-template <class DT> class MultilevelIndexedTensor {
-  using hashmap_vals =
-      tsl::hopscotch_map<CoOrdinate, tsl::hopscotch_map<CoOrdinate, DT>>;
-  using inner_map = tsl::hopscotch_map<CoOrdinate, DT>;
-  hashmap_vals indexed_tensor;
-
-public:
-  MultilevelIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate first_level_cords,
-                          CoOrdinate second_level_cords) {
-    assert(first_level_cords.get_dimensionality() +
-               second_level_cords.get_dimensionality() ==
-           base_tensor.get_dimensionality());
-    for (auto &nnz : base_tensor) {
-      auto first_level = nnz.get_coords().gather(first_level_cords);
-      auto second_level = nnz.get_coords().gather(second_level_cords);
-      auto it = indexed_tensor.find(first_level);
-      if (it != indexed_tensor.end()) {
-        it.value()[second_level] = nnz.get_data();
-      } else {
-        indexed_tensor[first_level] = {{second_level, nnz.get_data()}};
-      }
-    }
-  }
-  std::optional<DT> getif_valat(CoOrdinate first_level,
-                                CoOrdinate second_level) {
-    // lookups that fail in the first level will throw an exception
-    inner_map &inner = indexed_tensor[first_level];
-    auto it2 = inner.find(second_level);
-    if (it2 != inner.end()) {
-      return std::optional(it2.value());
-    } else {
-      return std::nullopt;
-    }
-  }
-  inner_map &get_map(CoOrdinate first_level) {
-    return indexed_tensor[first_level];
-  }
-};
-
 template <class DT> class IndexedTensor {
   using hashmap_vals =
       tsl::hopscotch_map<BoundedCoordinate,
@@ -420,7 +386,7 @@ private:
   using lowest_map = tsl::hopscotch_map<BoundedCoordinate, DT>;
   using middle_map = tsl::hopscotch_map<BoundedCoordinate, lowest_map>;
   std::forward_list<std::pair<BoundedCoordinate, middle_map>> nonzeros;
-  lowest_map* current_lowest = nullptr;
+  lowest_map *current_lowest = nullptr;
 
 public:
   bool is_same_row(BoundedCoordinate &left_ext) {
@@ -433,10 +399,13 @@ public:
   void add_row(BoundedCoordinate left_ext) {
     nonzeros.push_front({left_ext, {}});
   }
-  void move_sliceptr(BoundedCoordinate &left_external, BoundedCoordinate &batch) {
-      //assumes you're talking about current row. it won't deduplicate across rows
+  void move_sliceptr(BoundedCoordinate &left_external,
+                     BoundedCoordinate &batch) {
+    // assumes you're talking about current row. it won't deduplicate across
+    // rows
     assert(!this->nonzeros.empty());
-    assert(this->nonzeros.front().first == left_external);//TODO: can remove before flight.
+    assert(this->nonzeros.front().first ==
+           left_external); // TODO: can remove before flight.
     middle_map &middle_slice = nonzeros.front().second;
     auto lowest_iter = middle_slice.find(batch);
     if (lowest_iter == middle_slice.end()) {
@@ -444,8 +413,9 @@ public:
     }
     current_lowest = &middle_slice[batch];
   }
-  void update_last_row(BoundedCoordinate& right, DT data) {
-      //assumes we're in the correct first and middle slice, else no deduplication.
+  void update_last_row(BoundedCoordinate &right, DT data) {
+    // assumes we're in the correct first and middle slice, else no
+    // deduplication.
     auto col_entry = current_lowest->find(right);
     if (col_entry != current_lowest->end()) {
       col_entry.value() += data;
@@ -458,7 +428,7 @@ public:
     for (auto &first_slice : nonzeros) {
       CoOrdinate leftex = first_slice.first.as_coordinate();
       for (auto &second_slice : first_slice.second) {
-          CoOrdinate batch = second_slice.first.as_coordinate();
+        CoOrdinate batch = second_slice.first.as_coordinate();
         for (auto &nnz : second_slice.second) {
           CoOrdinate rightex = nnz.first.as_coordinate();
           result.get_nonzeros().push_back(
@@ -475,16 +445,18 @@ public:
   }
 };
 
-template <class DT> class OutputTensorBigint{
+template <class DT> class OutputTensorBigint {
 private:
-  using lowest_map = tsl::hopscotch_map<uint64_t, DT>; //TODO: this is of size 80k at max, seems like. maybe do SMJ
+  using lowest_map =
+      tsl::hopscotch_map<uint64_t, DT>; // TODO: this is of size 80k at max,
+                                        // seems like. maybe do SMJ
   using middle_map = tsl::hopscotch_map<uint64_t, lowest_map>;
   std::forward_list<std::pair<uint64_t, middle_map>> nonzeros;
-  lowest_map* current_lowest = nullptr;
+  lowest_map *current_lowest = nullptr;
 
 public:
   bool is_same_row(BoundedCoordinate &left_ext) {
-      uint64_t key = left_ext.as_bigint();
+    uint64_t key = left_ext.as_bigint();
 
     if (this->nonzeros.empty())
       return true;
@@ -492,16 +464,19 @@ public:
       return true;
     return false;
   }
-  void add_row(const BoundedCoordinate& left_ext) {
-      uint64_t key = left_ext.as_bigint();
+  void add_row(const BoundedCoordinate &left_ext) {
+    uint64_t key = left_ext.as_bigint();
     nonzeros.push_front({key, {}});
   }
-  void move_sliceptr(const BoundedCoordinate &left_external_cord,const BoundedCoordinate &batch_cord) {
-      //assumes you're talking about current row. it won't deduplicate across rows
-      uint64_t left_external = left_external_cord.as_bigint();
-      uint64_t batch =  batch_cord.as_bigint();
+  void move_sliceptr(const BoundedCoordinate &left_external_cord,
+                     const BoundedCoordinate &batch_cord) {
+    // assumes you're talking about current row. it won't deduplicate across
+    // rows
+    uint64_t left_external = left_external_cord.as_bigint();
+    uint64_t batch = batch_cord.as_bigint();
     assert(!this->nonzeros.empty());
-    assert(this->nonzeros.front().first == left_external);//TODO: can remove before flight.
+    assert(this->nonzeros.front().first ==
+           left_external); // TODO: can remove before flight.
     middle_map &middle_slice = nonzeros.front().second;
     auto lowest_iter = middle_slice.find(batch);
     if (lowest_iter == middle_slice.end()) {
@@ -509,9 +484,10 @@ public:
     }
     current_lowest = &middle_slice[batch];
   }
-  void update_last_row(const BoundedCoordinate& right_cord, DT data) {
-      //assumes we're in the correct first and middle slice, else no deduplication.
-      uint64_t right = right_cord.as_bigint();
+  void update_last_row(const BoundedCoordinate &right_cord, DT data) {
+    // assumes we're in the correct first and middle slice, else no
+    // deduplication.
+    uint64_t right = right_cord.as_bigint();
     auto col_entry = current_lowest->find(right);
     if (col_entry != current_lowest->end()) {
       col_entry.value() += data;
@@ -522,7 +498,10 @@ public:
   CompactTensor<DT> drain(BoundedCoordinate &sample_batch,
                           BoundedCoordinate &sample_left,
                           BoundedCoordinate &sample_right) {
-    CompactTensor<DT> result(this->get_nnz_count());
+    CompactTensor<DT> result(this->get_nnz_count(),
+                             sample_batch.get_dimensionality() +
+                                 sample_left.get_dimensionality() +
+                                 sample_right.get_dimensionality());
     for (auto &first_slice : nonzeros) {
       // CoOrdinate leftex = BoundedCoordinate(first_slice.first,
       // sample_left).as_coordinate();
@@ -606,9 +585,9 @@ public:
   template <class It> Tensor(It begin, It end) {
     for (auto it = begin; it != end; it++) {
       if constexpr (std::is_class<DT>::value) {
-              nonzeros.emplace_back(DT(), *it);
+        nonzeros.emplace_back(DT(), *it);
       } else {
-              nonzeros.emplace_back(1.0, *it);
+        nonzeros.emplace_back(1.0, *it);
       }
     }
     this->_infer_dimensionality();
@@ -617,9 +596,9 @@ public:
   Tensor(SymbolicTensor &sym) {
     for (auto &cord : sym) {
       if constexpr (std::is_class<DT>::value) {
-              nonzeros.emplace_back(DT(), cord);
+        nonzeros.emplace_back(DT(), cord);
       } else {
-              nonzeros.emplace_back(0.0, cord);
+        nonzeros.emplace_back(0.0, cord);
       }
     }
     this->_infer_dimensionality();
@@ -656,19 +635,19 @@ public:
     if (nonzeros.size() > 0) {
       shape = new int[dimensionality];
       for (int i = 0; i < dimensionality; i++) {
-              shape[i] = 0;
+        shape[i] = 0;
       }
       for (auto &nnz : nonzeros) {
-              auto coords = nnz.get_coords();
-              for (int i = 0; i < dimensionality; i++) {
-                if (coords.get_index(i) > shape[i]) {
-                  shape[i] = coords.get_index(i);
-                }
-              }
+        auto coords = nnz.get_coords();
+        for (int i = 0; i < dimensionality; i++) {
+          if (coords.get_index(i) > shape[i]) {
+            shape[i] = coords.get_index(i);
+          }
+        }
       }
       std::vector<int> shape_vec(shape, shape + dimensionality);
       for (auto &nnz : nonzeros) {
-              nnz.get_coords().set_shape(shape_vec);
+        nnz.get_coords().set_shape(shape_vec);
       }
     }
   }
@@ -677,7 +656,7 @@ public:
     for (auto &nnz : nonzeros) {
       auto this_coords = nnz.get_coords();
       if (this_coords == coords) {
-              return nnz.get_data();
+        return nnz.get_data();
       } else {
       }
     }
@@ -743,45 +722,45 @@ public:
       auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
       if (right_entry != right_indexed.indexed_tensor.end()) {
 
-              for (auto &left_ev :
-                   left_entry.second) { // loop over (e_l, nnz_l): external
-                                        // left, nnz at that external left.
-                for (auto &right_ev : right_entry->second) {
-                  BoundedCoordinate left_bc = left_entry.first;
+        for (auto &left_ev :
+             left_entry.second) { // loop over (e_l, nnz_l): external
+                                  // left, nnz at that external left.
+          for (auto &right_ev : right_entry->second) {
+            BoundedCoordinate left_bc = left_entry.first;
 
-                  BoundedCoordinate batch_coords = left_bc.gather(
-                      batchpos); // assumes that batch positions are leftmost,
-                                 // so they will work with a left subset.
-                  BoundedCoordinate left_external = left_ev.first;
-                  BoundedCoordinate right_external = right_ev.first;
+            BoundedCoordinate batch_coords = left_bc.gather(
+                batchpos); // assumes that batch positions are leftmost,
+                           // so they will work with a left subset.
+            BoundedCoordinate left_external = left_ev.first;
+            BoundedCoordinate right_external = right_ev.first;
 
-                  // CoOrdinate output_coords =
-                  //     CoOrdinate(batch_coords, left_ev.first,
-                  //     right_ev.first);
-                  OutputCoordinate output_coords = OutputCoordinate(
-                      batch_coords, left_external, right_external);
-                  RES outp;
-                  if constexpr (std::is_same<DT, densevec>() &&
-                                std::is_same<RIGHT, densevec>() &&
-                                std::is_same<RES, densemat>()) {
-                    outp = left_ev.second.densevec::outer(right_ev.second);
-                  } else if constexpr (std::is_same<DT, densemat>() &&
-                                       std::is_same<RIGHT, densemat>() &&
-                                       std::is_same<RES, double>()) {
-                    outp = left_ev.second.mult_reduce(right_ev.second);
+            // CoOrdinate output_coords =
+            //     CoOrdinate(batch_coords, left_ev.first,
+            //     right_ev.first);
+            OutputCoordinate output_coords =
+                OutputCoordinate(batch_coords, left_external, right_external);
+            RES outp;
+            if constexpr (std::is_same<DT, densevec>() &&
+                          std::is_same<RIGHT, densevec>() &&
+                          std::is_same<RES, densemat>()) {
+              outp = left_ev.second.densevec::outer(right_ev.second);
+            } else if constexpr (std::is_same<DT, densemat>() &&
+                                 std::is_same<RIGHT, densemat>() &&
+                                 std::is_same<RES, double>()) {
+              outp = left_ev.second.mult_reduce(right_ev.second);
 
-                  } else {
-                    outp = left_ev.second * right_ev.second;
-                  }
-                  auto result_ref = result.find(output_coords);
-                  counter++;
-                  if (result_ref != result.end()) {
-                    result_ref.value() += outp;
-                  } else {
-                    result[output_coords] = outp;
-                  }
-                }
-              }
+            } else {
+              outp = left_ev.second * right_ev.second;
+            }
+            auto result_ref = result.find(output_coords);
+            counter++;
+            if (result_ref != result.end()) {
+              result_ref.value() += outp;
+            } else {
+              result[output_coords] = outp;
+            }
+          }
+        }
       }
     }
     std::cout << "Overflow size " << result.overflow_size() << std::endl;
@@ -806,10 +785,10 @@ public:
 
   // inner outer multiplication
   template <class RES, class RIGHT>
-  CompactTensor<RES> inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
-                                   CoOrdinate left_batch,
-                                   CoOrdinate right_contr,
-                                   CoOrdinate right_batch) {
+  CompactTensor<RES>
+  inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                       CoOrdinate left_batch, CoOrdinate right_contr,
+                       CoOrdinate right_batch) {
     // for l
     //    for coiter
     //       for r
@@ -843,44 +822,44 @@ public:
     start = std::chrono::high_resolution_clock::now();
     OutputTensorBigint<RES> result;
     for (auto &left_slice : left_indexed) {
-      const BoundedCoordinate& left_ext_cordinate = left_slice.first;
+      const BoundedCoordinate &left_ext_cordinate = left_slice.first;
       result.add_row(left_ext_cordinate);
       for (auto left_nnz : left_slice.second) {
-              BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
-              result.move_sliceptr(left_ext_cordinate, batch_coord);
-              auto right_slice =
-                  right_indexed.indexed_tensor.find(left_nnz.first);
-              if (right_slice != right_indexed.indexed_tensor.end()) {
-                // There is atleast one nnz matching
-                for (auto &right_nnz : right_slice->second) {
-                  const BoundedCoordinate& right_ext_cordinate = right_nnz.first;
-                  DT left_val = left_nnz.second;
-                  RIGHT right_val = right_nnz.second;
-                  RES outp;
-                  if constexpr (std::is_same<DT, densevec>() &&
-                                std::is_same<RIGHT, densevec>() &&
-                                std::is_same<RES, densemat>()) {
-                    outp = left_val.densevec::outer(right_val);
-                  } else if constexpr (std::is_same<DT, densemat>() &&
-                                       std::is_same<RIGHT, densemat>() &&
-                                       std::is_same<RES, double>()) {
-                    outp = left_val.mult_reduce(right_val);
+        BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
+        result.move_sliceptr(left_ext_cordinate, batch_coord);
+        auto right_slice = right_indexed.indexed_tensor.find(left_nnz.first);
+        if (right_slice != right_indexed.indexed_tensor.end()) {
+          // There is atleast one nnz matching
+          for (auto &right_nnz : right_slice->second) {
+            const BoundedCoordinate &right_ext_cordinate = right_nnz.first;
+            DT left_val = left_nnz.second;
+            RIGHT right_val = right_nnz.second;
+            RES outp;
+            if constexpr (std::is_same<DT, densevec>() &&
+                          std::is_same<RIGHT, densevec>() &&
+                          std::is_same<RES, densemat>()) {
+              outp = left_val.densevec::outer(right_val);
+            } else if constexpr (std::is_same<DT, densemat>() &&
+                                 std::is_same<RIGHT, densemat>() &&
+                                 std::is_same<RES, double>()) {
+              outp = left_val.mult_reduce(right_val);
 
-                  } else {
-                    outp = left_val * right_val;
-                  }
-                  //OutputCoordinate output_coords = OutputCoordinate(
-                  //    batch_coord, BoundedCoordinate(), right_ext_cordinate);
-                  result.update_last_row(right_ext_cordinate, outp);
-                  //result.is_same_row(left_ext_cordinate); //TODO: remove before flight
-                  // auto result_ref = result.find(output_coords);
-                  // if (result_ref != result.end()) {
-                  //   result_ref.value() += outp;
-                  // } else {
-                  //   result[output_coords] = outp;
-                  // }
-                }
-              }
+            } else {
+              outp = left_val * right_val;
+            }
+            // OutputCoordinate output_coords = OutputCoordinate(
+            //     batch_coord, BoundedCoordinate(), right_ext_cordinate);
+            result.update_last_row(right_ext_cordinate, outp);
+            // result.is_same_row(left_ext_cordinate); //TODO: remove
+            // before flight
+            //  auto result_ref = result.find(output_coords);
+            //  if (result_ref != result.end()) {
+            //    result_ref.value() += outp;
+            //  } else {
+            //    result[output_coords] = outp;
+            //  }
+          }
+        }
       }
     }
     end = std::chrono::high_resolution_clock::now();
@@ -888,12 +867,15 @@ public:
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to contract: " << time_taken << std::endl;
-    //std::cout<<"Got "<<result.get_nnz_count()<<" nonzeros"<<std::endl;
+    // std::cout<<"Got "<<result.get_nnz_count()<<" nonzeros"<<std::endl;
 
-    BoundedCoordinate sample_batch = left_indexed.begin()->second.begin()->first.gather(batchpos);
+    BoundedCoordinate sample_batch =
+        left_indexed.begin()->second.begin()->first.gather(batchpos);
     BoundedCoordinate sample_left = left_indexed.begin()->first;
-    BoundedCoordinate sample_right = right_indexed.begin()->second.begin()->first;
-    CompactTensor<RES> result_tensor = result.drain(sample_batch, sample_left, sample_right);
+    BoundedCoordinate sample_right =
+        right_indexed.begin()->second.begin()->first;
+    CompactTensor<RES> result_tensor =
+        result.drain(sample_batch, sample_left, sample_right);
 
     return result_tensor;
   }
@@ -957,9 +939,9 @@ public:
     for (auto &nnz : other->get_nonzeros()) {
       auto ref = indexed_tensor.find(nnz.get_coords());
       if (ref != indexed_tensor.end()) {
-              ref.value() += nnz.get_data();
+        ref.value() += nnz.get_data();
       } else {
-              nonzeros.push_back(nnz);
+        nonzeros.push_back(nnz);
       }
     }
     for (auto &entry : indexed_tensor) {
@@ -971,10 +953,20 @@ public:
   DT operator[](CoOrdinate cord) {
     for (auto &nnz : nonzeros) {
       if (nnz.get_coords() == cord) {
-              return nnz.get_data();
+        return nnz.get_data();
       }
     }
     return DT();
   }
 };
+
+template <class DT> Tensor<DT> CompactTensor<DT>::to_tensor() {
+  Tensor<DT> result;
+  for (int iter = 0; iter < num_nonzeros; iter++) {
+    CompactNNZ<DT> *nnz = &nonzeros[iter];
+    result.get_nonzeros().push_back(NNZ<DT>(
+        nnz->get_data(), nnz->get_cord().as_coordinate(this->dimensionality)));
+  }
+  return result;
+}
 #endif

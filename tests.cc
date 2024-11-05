@@ -398,7 +398,7 @@ void dense_multiply() {
 
   Tensor<float> I_inout =
       T0.inner_outer_multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
-                         CoOrdinate({2, 3}), CoOrdinate({0, 1}));
+                         CoOrdinate({2, 3}), CoOrdinate({0, 1})).to_tensor();
 
   Tensor<float> ground_truth(520);
   for (int i = 0; i < 2; i++) {
@@ -480,7 +480,7 @@ void sparse_multiply() {
                          CoOrdinate({2, 3}), CoOrdinate({0, 1}));
   Tensor<float> I_inout =
       T0.inner_outer_multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
-                         CoOrdinate({2, 3}), CoOrdinate({0, 1}));
+                         CoOrdinate({2, 3}), CoOrdinate({0, 1})).to_tensor();
 
   Tensor<float> ground_truth(520);
   for (int i = 0; i < 2; i++) {
@@ -563,7 +563,7 @@ void sparse_multiply_offsetcrd() {
 
   Tensor<float> I_inout =
       T0.inner_outer_multiply<float>(T1, CoOrdinate({2, 3}), CoOrdinate({0, 1}),
-                         CoOrdinate({2, 3}), CoOrdinate({0, 1}));
+                         CoOrdinate({2, 3}), CoOrdinate({0, 1})).to_tensor();
 
   Tensor<float> ground_truth(520);
   for (int i = 0; i < 2; i++) {
@@ -647,7 +647,7 @@ void sparse_multiply_extrnonly() {
                                        CoOrdinate({0, 1}), CoOrdinate({}));
 
   Tensor<float> I_inout = T0.inner_outer_multiply<float>(T1, CoOrdinate({1, 2}), CoOrdinate({}),
-                                       CoOrdinate({0, 1}), CoOrdinate({}));
+                                       CoOrdinate({0, 1}), CoOrdinate({})).to_tensor();
 
   Tensor<float> ground_truth(520);
   for (int i = 0; i < 6; i++) {
@@ -725,7 +725,7 @@ Tensor<densevec> tevv_dlmop_fillvalues(Tensor<double>& dtevv, Tensor<densevec>& 
               << " microseconds" << std::endl;
     std::cout<<"Size of result2 is "<<result2.get_size()<<std::endl;
     start = std::chrono::high_resolution_clock::now();
-    Tensor<densevec> result_inout = dtevv.inner_outer_multiply<densevec>(dlmop, left_c, left_b, right_c, right_b);
+    Tensor<densevec> result_inout = dtevv.inner_outer_multiply<densevec>(dlmop, left_c, left_b, right_c, right_b).to_tensor();
     end = std::chrono::high_resolution_clock::now();
     std::cout << "Time taken for inner outer kernel "
               << std::chrono::duration_cast<std::chrono::microseconds>(end -

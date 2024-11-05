@@ -52,7 +52,6 @@ public:
   }
 };
 
-
 // This is only for tensors with co-ordinates up to 16 bits, ie 65k
 class BoundedCoordinate {
   uint8_t dimensions = 0;
@@ -61,21 +60,21 @@ class BoundedCoordinate {
   size_t linearization = 0;
 
 public:
-  BoundedCoordinate(){
-      // Give an empty coordinate
-      BoundedCoordinate(nullptr, nullptr, 0);
+  BoundedCoordinate() {
+    // Give an empty coordinate
+    BoundedCoordinate(nullptr, nullptr, 0);
   }
-  // Pass in a sample cordinate with the same shape as what you expect for linearized.
-  // if you change the as_bigint method, this has to change.
+  // Pass in a sample cordinate with the same shape as what you expect for
+  // linearized. if you change the as_bigint method, this has to change.
   BoundedCoordinate(uint64_t bigint, BoundedCoordinate const &sample_cord) {
-      dimensions = sample_cord.get_dimensionality();
-      uint64_t linearized =  bigint;
-      for (int iter = dimensions - 1; iter >= 0; iter--) {
+    dimensions = sample_cord.get_dimensionality();
+    uint64_t linearized = bigint;
+    for (int iter = dimensions - 1; iter >= 0; iter--) {
       bounds[iter] = sample_cord.get_bound(iter);
       coords[iter] = linearized % (bounds[iter] + 1);
       linearized = (linearized - coords[iter]) / (bounds[iter] + 1);
-      }
-      assert(this->as_bigint() == bigint); // TODO remove before flight
+    }
+    assert(this->as_bigint() == bigint); // TODO remove before flight
   }
   BoundedCoordinate(int *coords, int *bounds, int dimensions) {
     for (int i = 0; i < dimensions; i++) {
@@ -123,9 +122,7 @@ public:
     linearization = this->get_linearization();
   }
   CoOrdinate as_coordinate() const;
-  uint64_t as_bigint() const{
-      return (uint64_t)this->get_linearization();
-  }
+  uint64_t as_bigint() const { return (uint64_t)this->get_linearization(); }
   int get_dimensionality() const { return dimensions; }
   std::string to_string() const {
     std::string str = "";
@@ -194,21 +191,21 @@ public:
     return BoundedCoordinate(res_cords, res_bounds, res_dimensionality);
   }
   bool operator==(const BoundedCoordinate &other) const {
-    //if (dimensions != other.get_dimensionality()) {
-    //  return false;
-    //}
-    //for (int i = 0; i < dimensions; i++) {
-    //  if (coords[i] != other.get_coordinate(i)) {
-    //    return false;
-    //  }
-    //}
-    //return true;
+    // if (dimensions != other.get_dimensionality()) {
+    //   return false;
+    // }
+    // for (int i = 0; i < dimensions; i++) {
+    //   if (coords[i] != other.get_coordinate(i)) {
+    //     return false;
+    //   }
+    // }
+    // return true;
     return this->get_linearization() == other.get_linearization();
   }
 };
 template <> struct std::hash<BoundedCoordinate> {
   std::size_t operator()(const BoundedCoordinate &c) const {
-      size_t linearization = c.get_linearization(-1);
+    size_t linearization = c.get_linearization(-1);
     return std::hash<size_t>()(linearization);
   }
 };
@@ -256,9 +253,7 @@ public:
                 right_external.get_linear_bound() +
             right_external.get_linearization());
   }
-  uint64_t as_bigint() const{
-      return (uint64_t)(this->linearization);
-  }
+  uint64_t as_bigint() const { return (uint64_t)(this->linearization); }
   size_t get_min_hash() const {
     size_t batch_bound = batch.get_linear_bound();
     size_t left_bound = left_external.get_linear_bound();
@@ -272,14 +267,14 @@ public:
     else
       assert(false);
   }
-  //CoOrdinate as_coordinate(){
-  //    auto single_cord = this->merge();
-  //    return single_cord.as_coordinate();
-  //}
-  // int get_dimensionality() const {
-  //     return batch.get_dimensionality() + left_external.get_dimensionality()
-  //     + right_external.get_dimensionality();
+  // CoOrdinate as_coordinate(){
+  //     auto single_cord = this->merge();
+  //     return single_cord.as_coordinate();
   // }
+  //  int get_dimensionality() const {
+  //      return batch.get_dimensionality() + left_external.get_dimensionality()
+  //      + right_external.get_dimensionality();
+  //  }
 };
 
 template <> struct std::hash<OutputCoordinate> {
@@ -308,6 +303,8 @@ template <> struct std::hash<OutputCoordinate> {
     //  }
   }
 };
+
+class Coordinate;
 
 class CompactCordinate {
   // char dimensionality;
@@ -365,6 +362,7 @@ public:
       }
     }
   }
+  CoOrdinate as_coordinate(int dim) const;
 };
 
 class CoOrdinate {
@@ -584,5 +582,13 @@ template <> struct std::hash<CoOrdinate> {
     // return std::hash<std::bitset<BITWIDTH>>{}(c.get_bits());
   }
 };
+
+CoOrdinate CompactCordinate::as_coordinate(int dimensions) const {
+  std::vector<int> result;
+  for (int i = 0; i < dimensions; i++) {
+    result.push_back(coords[i]);
+  }
+  return result;
+}
 
 #endif
