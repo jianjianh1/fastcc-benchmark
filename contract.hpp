@@ -381,71 +381,7 @@ public:
   }
 };
 
-template <class DT> class OutputTensor {
-private:
-  using lowest_map = tsl::hopscotch_map<BoundedCoordinate, DT>;
-  using middle_map = tsl::hopscotch_map<BoundedCoordinate, lowest_map>;
-  std::forward_list<std::pair<BoundedCoordinate, middle_map>> nonzeros;
-  lowest_map *current_lowest = nullptr;
-
-public:
-  bool is_same_row(BoundedCoordinate &left_ext) {
-    if (this->nonzeros.empty())
-      return true;
-    if (this->nonzeros.front().first == left_ext)
-      return true;
-    return false;
-  }
-  void add_row(BoundedCoordinate left_ext) {
-    nonzeros.push_front({left_ext, {}});
-  }
-  void move_sliceptr(BoundedCoordinate &left_external,
-                     BoundedCoordinate &batch) {
-    // assumes you're talking about current row. it won't deduplicate across
-    // rows
-    assert(!this->nonzeros.empty());
-    assert(this->nonzeros.front().first ==
-           left_external); // TODO: can remove before flight.
-    middle_map &middle_slice = nonzeros.front().second;
-    auto lowest_iter = middle_slice.find(batch);
-    if (lowest_iter == middle_slice.end()) {
-      middle_slice[batch] = {};
-    }
-    current_lowest = &middle_slice[batch];
-  }
-  void update_last_row(BoundedCoordinate &right, DT data) {
-    // assumes we're in the correct first and middle slice, else no
-    // deduplication.
-    auto col_entry = current_lowest->find(right);
-    if (col_entry != current_lowest->end()) {
-      col_entry.value() += data;
-    } else {
-      (*current_lowest)[right] = data;
-    }
-  }
-  Tensor<DT> drain() {
-    Tensor<DT> result;
-    for (auto &first_slice : nonzeros) {
-      CoOrdinate leftex = first_slice.first.as_coordinate();
-      for (auto &second_slice : first_slice.second) {
-        CoOrdinate batch = second_slice.first.as_coordinate();
-        for (auto &nnz : second_slice.second) {
-          CoOrdinate rightex = nnz.first.as_coordinate();
-          result.get_nonzeros().push_back(
-              NNZ<DT>(nnz.second, CoOrdinate(batch, leftex, rightex)));
-        }
-      }
-    }
-    return result;
-  }
-  int get_nnz_count() {
-    return std::accumulate(
-        nonzeros.begin(), nonzeros.end(), 0,
-        [](int old_count, auto row) { return old_count + row.second.size(); });
-  }
-};
-
-template <class DT> class OutputTensorBigint {
+template <class DT> class OutputTensorHashMap {
 private:
   using lowest_map =
       tsl::hopscotch_map<uint64_t, DT>; // TODO: this is of size 80k at max,
@@ -820,7 +756,7 @@ public:
 
     // tsl::hopscotch_map<OutputCoordinate, RES> result;
     start = std::chrono::high_resolution_clock::now();
-    OutputTensorBigint<RES> result;
+    OutputTensorHashMap<RES> result;
     for (auto &left_slice : left_indexed) {
       const BoundedCoordinate &left_ext_cordinate = left_slice.first;
       result.add_row(left_ext_cordinate);
