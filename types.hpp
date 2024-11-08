@@ -6,7 +6,6 @@
 #include <math.h>
 #include <stdlib.h>
 #include <vector>
-#include <mkl/mkl.h>
 
 class densemat;
 class densevec {
@@ -36,17 +35,12 @@ public:
   // scalar * vec
   // vec * vec -> inner dot, we don't ever need  element-wise
   densevec operator*(double scalar) const {
-    double *res = new double[size];
-    memset(res, 0, sizeof(double) * size);
-    cblas_daxpy(size, scalar, values, 1, res, 1);
-     //std::vector<double> res_data;
-     //for (int i = 0; i < size; i++) {
-     //  res_data.push_back(values[i] * scalar);
-     //}
-     //densevec result = densevec(res_data);
-     //return result;
-    densevec result = densevec(res, size);
-    return result;
+     std::vector<double> res_data;
+     for (int i = 0; i < size; i++) {
+       res_data.push_back(values[i] * scalar);
+     }
+     densevec result = densevec(res_data);
+     return result;
   }
   std::string to_string() const {
     std::string result = "";
@@ -56,32 +50,32 @@ public:
     return result;
   }
   densevec operator+=(densevec other) {
-    if (size != other.size) {
-      std::cerr << "Vector sizes do not match for an addition. Left is " << size
-                << ", while right is " << other.getsize() << std::endl;
-      exit(1);
+    //if (size != other.size) {
+    //  std::cerr << "Vector sizes do not match for an addition. Left is " << size
+    //            << ", while right is " << other.getsize() << std::endl;
+    //  exit(1);
+    //}
+    //cblas_daxpy(size, 1.0, other.getdata(), 1, values, 1);
+    for (int i = 0; i < size; i++) {
+      values[i] += other(i);
     }
-    cblas_daxpy(size, 1.0, other.getdata(), 1, values, 1);
-    // for (int i = 0; i < size; i++) {
-    //   values[i] += other(i);
-    // }
     return *this;
   }
   double operator*(densevec other) const {
 
-    if (size != other.size) {
-      std::cerr << "Vector sizes do not match for an inner product"
-                << std::endl;
-      std::cerr << "Left is " << size << ", while right is " << other.getsize()
-                << std::endl;
-      exit(1);
+    //if (size != other.size) {
+    //  std::cerr << "Vector sizes do not match for an inner product"
+    //            << std::endl;
+    //  std::cerr << "Left is " << size << ", while right is " << other.getsize()
+    //            << std::endl;
+    //  exit(1);
+    //}
+    //return cblas_ddot(size, values, 1, other.getdata(), 1);
+    double result = 0.0;
+    for (int i = 0; i < size; i++) {
+      result += values[i] * other(i);
     }
-    return cblas_ddot(size, values, 1, other.getdata(), 1);
-    // double result = 0.0;
-    // for (int i = 0; i < size; i++) {
-    //   result += values[i] * other(i);
-    // }
-    // return result;
+    return result;
   }
 
   densemat outer(densevec other) const;
@@ -175,15 +169,11 @@ public:
   //  vec * mat -> vec. gemv
   //
   densemat operator*(double scalar) const {
-    double *res = new double[size * size];
-    memset(res, 0, sizeof(double) * size * size);
-    cblas_daxpy(size * size, scalar, values, 1, res, 1);
-    densemat result = densemat(res, size);
-    // std::vector<double> res_data;
-    // for (int i = 0; i < size * size; i++) {
-    //   res_data.push_back(scalar * values[i]);
-    // }
-    // densemat result = densemat(res_data);
+    std::vector<double> res_data;
+    for (int i = 0; i < size * size; i++) {
+      res_data.push_back(scalar * values[i]);
+    }
+    densemat result = densemat(res_data);
     return result;
   }
   densemat operator*(densemat other) const {
@@ -195,25 +185,25 @@ public:
       exit(1);
     }
 
-    double *res = new double[size * size];
-    memset(res, 0, sizeof(double) * size * size);
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, size, size,                                                                                                size, 1.0, values, size, other.values, size, 0.0, res,                                                                                       
-                size);
-    densemat result = densemat(res, size);
-    return result;
-
-    //std::vector<double> res_data;
-    //for (int i = 0; i < size; i++) {
-    //  for (int j = 0; j < size; j++) {
-    //    double sum = 0.0;
-    //    for (int k = 0; k < size; k++) {
-    //      sum += values[i * size + k] * other(k, j);
-    //    }
-    //    res_data.push_back(sum);
-    //  }
-    //}
-    //densemat result = densemat(res_data);
+    //double *res = new double[size * size];
+    //memset(res, 0, sizeof(double) * size * size);
+    //cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, size, size,                                                                                                size, 1.0, values, size, other.values, size, 0.0, res,                                                                                       
+    //            size);
+    //densemat result = densemat(res, size);
     //return result;
+
+    std::vector<double> res_data;
+    for (int i = 0; i < size; i++) {
+      for (int j = 0; j < size; j++) {
+        double sum = 0.0;
+        for (int k = 0; k < size; k++) {
+          sum += values[i * size + k] * other(k, j);
+        }
+        res_data.push_back(sum);
+      }
+    }
+    densemat result = densemat(res_data);
+    return result;
   }
   // Elementwise product followed by sum
   double mult_reduce(densemat other) const {
@@ -241,46 +231,34 @@ public:
           << std::endl;
       exit(1);
     }
-    double *res = new double[size];
-    memset(res, 0, sizeof(double) * size);
-    cblas_dgemv(CblasRowMajor, CblasNoTrans, size, size, 1.0, values, size,
-                other.getdata(), 1, 0.0, res, 1);
-    densevec result = densevec(res, size);
+    std::vector<double> res_data;
+    for (int i = 0; i < size; i++) {
+      double sum = 0.0;
+      for (int j = 0; j < size; j++) {
+        sum += values[i * size + j] * other(j);
+      }
+      res_data.push_back(sum);
+    }
+    densevec result = densevec(res_data);
     return result;
-    //std::vector<double> res_data;
-    //for (int i = 0; i < size; i++) {
-    //  double sum = 0.0;
-    //  for (int j = 0; j < size; j++) {
-    //    sum += values[i * size + j] * other(j);
-    //  }
-    //  res_data.push_back(sum);
-    //}
-    //densevec result = densevec(res_data);
-    //return result;
   }
 };
 densemat densevec::outer(densevec other) const {
-  double *res = new double[size * other.getsize()];
-  // std::vector<double> res_data;
-  // for (int i = 0; i < size; i++) {
-  //   for (int j = 0; j < other.size; j++) {
-  //     res_data.push_back(values[i] * other(j));
-  //   }
-  // }
-  // densemat result = densemat(res_data);
-  // return result;
-  memset(res, 0, sizeof(double) * size * other.getsize());
-  cblas_dger(CblasRowMajor, size, other.getsize(), 1.0, values, 1, other.values,
-             1, res, other.getsize());
-  return densemat(res, size);
+  std::vector<double> res_data;
+  for (int i = 0; i < size; i++) {
+    for (int j = 0; j < other.size; j++) {
+      res_data.push_back(values[i] * other(j));
+    }
+  }
+  densemat result = densemat(res_data);
+  return result;
 }
 
 double operator+=(double prev, densevec vec) {
-  // for (int i = 0; i < vec.getsize(); i++) {
-  //   prev += vec(i);
-  // }
-  double vecsum = cblas_dasum(vec.getsize(), vec.getdata(), 1);
-  return prev + vecsum;
+  for (int i = 0; i < vec.getsize(); i++) {
+    prev += vec(i);
+  }
+  return prev;
 }
 double operator+=(double prev, densemat mat) {
   //for (int i = 0; i < mat.getsize(); i++) {

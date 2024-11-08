@@ -10,6 +10,7 @@
 #include <random>
 #include <ranges>
 #include <tsl/hopscotch_map.h>
+#include "absl/container/flat_hash_map.h"
 #include <tsl/hopscotch_set.h>
 #include <type_traits>
 #include <unordered_map>
@@ -385,8 +386,7 @@ public:
 template <class DT> class OutputTensorHashMap {
 private:
   using lowest_map =
-      tsl::hopscotch_map<uint64_t, DT>; // TODO: this is of size 80k at max,
-                                        // seems like. maybe do SMJ
+      absl::flat_hash_map<uint64_t, DT>;
   using middle_map = tsl::hopscotch_map<uint64_t, lowest_map>;
   std::forward_list<std::pair<uint64_t, middle_map>> nonzeros;
   lowest_map *current_lowest = nullptr;
@@ -427,7 +427,7 @@ public:
     uint64_t right = right_cord.as_bigint();
     auto col_entry = current_lowest->find(right);
     if (col_entry != current_lowest->end()) {
-      col_entry.value() += data;
+      col_entry->second += data;
     } else {
       (*current_lowest)[right] = data;
     }
