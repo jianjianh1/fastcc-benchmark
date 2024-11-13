@@ -420,6 +420,7 @@ public:
       middle_slice[batch] = {};
     }
     current_lowest = &middle_slice[batch];
+    //current_lowest->reserve(20000);
   }
   void update_last_row(const BoundedCoordinate &right_cord, DT data) {
     // assumes we're in the correct first and middle slice, else no
@@ -431,6 +432,10 @@ public:
     } else {
       (*current_lowest)[right] = data;
     }
+    //auto try_insert = current_lowest->insert({right, data});
+    //if(!try_insert.second){
+    //    try_insert.first->second += data;
+    //}
   }
   CompactTensor<DT> drain(BoundedCoordinate &sample_batch,
                           BoundedCoordinate &sample_left,
@@ -439,12 +444,14 @@ public:
                              sample_batch.get_dimensionality() +
                                  sample_left.get_dimensionality() +
                                  sample_right.get_dimensionality());
+    int num_tables = 0;
     for (auto &first_slice : nonzeros) {
       // CoOrdinate leftex = BoundedCoordinate(first_slice.first,
       // sample_left).as_coordinate();
       for (auto &second_slice : first_slice.second) {
         // CoOrdinate batch = BoundedCoordinate(second_slice.first,
         // sample_batch).as_coordinate();
+        num_tables++;
         for (auto &nnz : second_slice.second) {
           // CoOrdinate rightex = BoundedCoordinate(nnz.first,
           // sample_right).as_coordinate();
@@ -455,6 +462,7 @@ public:
         }
       }
     }
+    std::cout<<"Accumulated from "<<num_tables<<" tables"<<std::endl;
     return result;
   }
   int get_nnz_count() {
@@ -856,6 +864,7 @@ public:
 
     // tsl::hopscotch_map<OutputCoordinate, RES> result;
     start = std::chrono::high_resolution_clock::now();
+    //OutputTensorHashMap<RES> result;
     OutputTensorHashMap<RES> result;
     for (auto &left_slice : left_indexed) {
       const BoundedCoordinate &left_ext_cordinate = left_slice.first;
