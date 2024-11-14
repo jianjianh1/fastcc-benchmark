@@ -420,7 +420,7 @@ public:
       middle_slice[batch] = {};
     }
     current_lowest = &middle_slice[batch];
-    //current_lowest->reserve(20000);
+    current_lowest->reserve(20000);
   }
   void update_last_row(const BoundedCoordinate &right_cord, DT data) {
     // assumes we're in the correct first and middle slice, else no
@@ -463,6 +463,20 @@ public:
       }
     }
     std::cout<<"Accumulated from "<<num_tables<<" tables"<<std::endl;
+    return result;
+  }
+  std::unordered_map<int, int> get_lowest_level_histogram() {
+    std::unordered_map<int, int> result;
+    for (auto &first_slice : nonzeros) {
+      for (auto &second_slice : first_slice.second) {
+        int sizeof_thistable = second_slice.second.size();
+        auto maybe_itr = result.find(sizeof_thistable);
+        if (maybe_itr == result.end())
+          result[sizeof_thistable] = 1;
+        else
+          result[sizeof_thistable] += 1;
+      }
+    }
     return result;
   }
   int get_nnz_count() {
