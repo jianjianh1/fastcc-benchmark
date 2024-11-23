@@ -397,8 +397,8 @@ public:
 
 template <class DT> class OutputTensorHashMap {
 private:
-  // using lowest_map =
-  //     tsl::hopscotch_map<uint64_t, DT>;
+  //using lowest_map =
+  //    tsl::hopscotch_map<uint64_t, DT>;
   using lowest_map = ankerl::unordered_dense::map<uint64_t, DT>;
   // using lowest_map = absl::flat_hash_map<uint64_t, DT>;
   using middle_map = tsl::hopscotch_map<uint64_t, lowest_map>;
@@ -491,8 +491,6 @@ public:
   void drain_into(CompactTensor<DT> &result, BoundedCoordinate &sample_batch,
                   BoundedCoordinate &sample_left,
                   BoundedCoordinate &sample_right) {
-    assert(this->get_nnz_count() <=
-           result.get_reserved_count()); // TODO remove before flight
     for (auto &first_slice : nonzeros) {
       // CoOrdinate leftex = BoundedCoordinate(first_slice.first,
       // sample_left).as_coordinate();
@@ -961,7 +959,8 @@ public:
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to contract: " << time_taken << std::endl;
-    // std::cout<<"Got "<<result.get_nnz_count()<<" nonzeros"<<std::endl;
+    std::cout<<"Got "<<result.get_nnz_count()<<" nonzeros"<<std::endl;
+    start = std::chrono::high_resolution_clock::now();
 
     BoundedCoordinate sample_batch =
         left_indexed.begin()->second.begin()->first.gather(batchpos);
@@ -970,6 +969,11 @@ public:
         right_indexed.begin()->second.begin()->first;
     CompactTensor<RES> result_tensor =
         result.drain(sample_batch, sample_left, sample_right);
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to writeback: " << time_taken << std::endl;
     std::cout << "Got " << result_tensor.get_nnz_count() << " nonzeros"
               << std::endl;
 
@@ -1063,6 +1067,8 @@ public:
     for (auto &res : task_local_results) {
       total_nnz += res.get_nnz_count();
     }
+    std::cout<<"Got "<<total_nnz<<" nonzeros"<<std::endl;
+    start = std::chrono::high_resolution_clock::now();
     CompactTensor<RES> result_tensor(total_nnz,
                                      sample_batch.get_dimensionality() +
                                          sample_left.get_dimensionality() +
@@ -1081,6 +1087,11 @@ public:
     }
     assert(pos == total_nnz);
     exec2.run(taskflow2).wait();
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to writeback: " << time_taken << std::endl;
 
     return result_tensor;
   }
