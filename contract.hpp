@@ -1250,8 +1250,8 @@ public:
         const BoundedCoordinate &left_ext_cordinate = left_slice.first;
         result.add_row(left_ext_cordinate);
         for (auto left_nnz : left_slice.second) {
-          //BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
-          //result.move_sliceptr(left_ext_cordinate, batch_coord);
+          BoundedCoordinate batch_coord = left_nnz.first.gather(batchpos);
+          result.move_sliceptr(left_ext_cordinate, batch_coord);
           auto right_slice = right_indexed.indexed_tensor.find(left_nnz.first);
           if (right_slice != right_indexed.indexed_tensor.end()) {
             // There is atleast one nnz matching
