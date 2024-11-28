@@ -55,8 +55,8 @@ public:
 // This is only for tensors with co-ordinates up to 16 bits, ie 65k
 class BoundedCoordinate {
   uint8_t dimensions = 0;
-  uint16_t coords[DIMENSIONALITY];
-  uint16_t bounds[DIMENSIONALITY];
+  uint32_t coords[DIMENSIONALITY];
+  uint32_t bounds[DIMENSIONALITY];
   size_t linearization = 0;
 
 public:
@@ -148,10 +148,10 @@ public:
     }
     return result;
   }
-  size_t get_linearization(int offset = 1) const {
+  uint64_t get_linearization(int offset = 1) const {
     if (this->linearization != 0)
       return this->linearization;
-    size_t linearlized_cord = 0;
+    uint64_t linearlized_cord = 0;
     for (int i = 0; i < this->get_dimensionality(); i++) {
       linearlized_cord += this->get_coordinate(i);
       if (i != this->get_dimensionality() - 1) {
@@ -191,16 +191,16 @@ public:
     return BoundedCoordinate(res_cords, res_bounds, res_dimensionality);
   }
   bool operator==(const BoundedCoordinate &other) const {
-    // if (dimensions != other.get_dimensionality()) {
-    //   return false;
-    // }
-    // for (int i = 0; i < dimensions; i++) {
-    //   if (coords[i] != other.get_coordinate(i)) {
-    //     return false;
-    //   }
-    // }
-    // return true;
-    return this->get_linearization() == other.get_linearization();
+    if (dimensions != other.get_dimensionality()) {
+      return false;
+    }
+    for (int i = 0; i < dimensions; i++) {
+      if (coords[i] != other.get_coordinate(i)) {
+        return false;
+      }
+    }
+    return true;
+    //return this->get_linearization() == other.get_linearization();
   }
 };
 template <> struct std::hash<BoundedCoordinate> {
@@ -322,6 +322,38 @@ public:
           (linearized - coords[iter]) / (sample_cord.get_bound(iter) + 1);
     }
   }
+  CompactCordinate(uint64_t leftint, BoundedCoordinate const &left_sample,
+                   uint64_t rightint, BoundedCoordinate const &right_sample) {
+    int dimensionality =
+        left_sample.get_dimensionality() + right_sample.get_dimensionality();
+    coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
+    uint64_t linearized = leftint;
+    if (linearized > 0) {
+      for (int iter = left_sample.get_dimensionality() - 1; iter >= 0; iter--) {
+        coords[iter] = linearized % (left_sample.get_bound(iter) + 1);
+        linearized =
+            (linearized - coords[iter]) / (left_sample.get_bound(iter) + 1);
+      }
+    }
+    linearized = rightint;
+    if (linearized > 0) {
+      for (int iter = right_sample.get_dimensionality() - 1; iter >= 0;
+           iter--) {
+        coords[iter + left_sample.get_dimensionality()] =
+            linearized % (right_sample.get_bound(iter) + 1);
+        linearized =
+            (linearized - coords[iter + left_sample.get_dimensionality()]) /
+            (right_sample.get_bound(iter) + 1);
+      }
+    }
+  }
+  CompactCordinate(const BoundedCoordinate &cord) {
+    int dimensionality = cord.get_dimensionality();
+    coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
+    for (int i = 0; i < dimensionality; i++) {
+      coords[i] = cord.get_coordinate(i);
+    }
+  }
   CompactCordinate(uint64_t batchint, BoundedCoordinate const &batch_sample,
                    uint64_t leftint, BoundedCoordinate const &left_sample,
                    uint64_t rightint, BoundedCoordinate const &right_sample) {
@@ -365,10 +397,10 @@ public:
   CoOrdinate as_coordinate(int dim) const;
 };
 
-
-template<class DT> class BigintNNZ {
+template <class DT> class BigintNNZ {
   uint64_t bigint;
   DT value;
+
 public:
   BigintNNZ(uint64_t bigint, DT value) : bigint(bigint), value(value) {}
   uint64_t get_bigint() const { return bigint; }
@@ -562,6 +594,20 @@ public:
     //   }
     // }
     // return true;
+  }
+  uint64_t linearize() const {
+    if (get_shape().size() == 0) {
+      std::cerr << "Need to set shape before hashing coordinate" << std::endl;
+      assert(false);
+    }
+    uint64_t linearlized_cord = 0;
+    for (int i = 0; i < this->get_dimensionality(); i++) {
+      linearlized_cord += coords[i];
+      if (i != this->get_dimensionality() - 1) {
+        linearlized_cord *= max_indices[i + 1];
+      }
+    }
+    return linearlized_cord;
   }
 };
 
