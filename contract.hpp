@@ -31,37 +31,51 @@ public:
   CompactCordinate get_cord() { return cord; }
 };
 
+template <class DT> class AtomicNodeNNZ {
+  CompactCordinate cord;
+  DT data;
+
+public:
+  std::atomic<AtomicNodeNNZ<DT> *> next;
+  AtomicNodeNNZ(DT data, CompactCordinate cord)
+      : data(data), cord(cord), next(nullptr) {}
+  DT get_data() { return data; }
+  CompactCordinate get_cord() { return cord; }
+};
+
 template <class DT> class Tensor;
 
-template <class DT> class AtomicCompactTensor {
-  int num_nonzeros = 0;
-  CompactNNZ<DT> *nonzeros = nullptr;
-  // int iter = 0;
-  std::atomic_int iter = 0;
+template <class DT> class AtomicListTensor {
+  std::atomic<AtomicNodeNNZ<DT> *> head = nullptr;
   int dimensionality = 42;
 
 public:
-  AtomicCompactTensor(int num_nonzeros, int dimensionality = 0) {
-    std::cout << "Initialized with " << num_nonzeros << std::endl;
-    this->num_nonzeros = num_nonzeros;
-    nonzeros = (CompactNNZ<DT> *)malloc(num_nonzeros * sizeof(CompactNNZ<DT>));
+  AtomicListTensor(int dimensionality = 0) {
     this->dimensionality = dimensionality;
   }
 
-  AtomicCompactTensor(AtomicCompactTensor<double> &&) {
-    std::cout << "Move constructor" << std::endl;
+  AtomicListTensor(AtomicListTensor<DT> &&other) {
+    head.store(other.head.load());
+    //other.head = nullptr;
+    dimensionality = other.dimensionality;
   }
 
   void push_nnz(DT data, CompactCordinate cord) {
-    if (iter >= num_nonzeros) {
-      std::cerr << "Tried to push more nonzeros than allocated" << std::endl;
-      exit(1);
-    }
-    nonzeros[iter++] = CompactNNZ<DT>(data, cord);
+    AtomicNodeNNZ<DT> *new_node = new AtomicNodeNNZ<DT>(data, cord);
+    AtomicNodeNNZ<DT> *old_head = head;
+    do {
+      old_head = head.load();
+      new_node->next = old_head;
+    } while (!head.compare_exchange_weak(old_head, new_node));
   }
-  int get_reserved_count() { return num_nonzeros; }
-  int get_nnz_count() { return iter; }
-  Tensor<DT> to_tensor();
+  int get_nnz_count() {
+    int count = 0;
+    for (AtomicNodeNNZ<DT> *current = head; current != nullptr;
+         current = current->next.load()) {
+      count++;
+    }
+    return count;
+  }
 };
 template <class DT> class ListTensor {
   std::forward_list<CompactNNZ<DT>> nonzeros;
@@ -359,7 +373,7 @@ public:
 
 template <class DT> class SmallIndexedTensor {
   using hashmap_vals =
-      tsl::hopscotch_map<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
+      emhash8::HashMap<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
 
 public:
   hashmap_vals indexed_tensor;
@@ -378,7 +392,7 @@ public:
       uint64_t remaining = nnz.get_coords().remove(index_coords).linearize();
       auto it = indexed_tensor.find(index);
       if (it != indexed_tensor.end()) {
-        it.value().push_back({remaining, nnz.get_data()});
+        it->second.push_back({remaining, nnz.get_data()});
       } else {
         indexed_tensor[index] = {{remaining, nnz.get_data()}};
       }
@@ -485,21 +499,21 @@ public:
 };
 
 template <class DT>
-DT sort_join(std::vector<std::pair<uint64_t, DT>> &left,
-             std::vector<std::pair<uint64_t, DT>> &right) {
-  std::vector<std::pair<uint64_t, DT>> &smallref =
+DT sort_join(std::vector<std::pair<uint64_t, DT>>& left,
+             std::vector<std::pair<uint64_t, DT>>& right) {
+  std::vector<std::pair<uint64_t, DT>>& smallref =
       left.size() < right.size() ? left : right;
-  std::vector<std::pair<uint64_t, DT>> &largeref =
+  std::vector<std::pair<uint64_t, DT>>& largeref =
       left.size() < right.size() ? right : left;
   std::sort(smallref.begin(), smallref.end(),
             [](auto a, auto b) { return a.first < b.first; });
   // linear on the smaller vector, binary search on the larger.
   DT sum = DT();
-  for (auto &p1 : largeref) {
-    auto it = std::lower_bound(smallref.begin(), smallref.end(), p1.first,
+  for (auto p1 = largeref.begin(); p1 != largeref.end(); p1++) {
+    auto it = std::lower_bound(smallref.begin(), smallref.end(), p1->first,
                                [](auto a, auto b) { return a.first < b; });
-    if (it != smallref.end() && it->first == p1.first) {
-      sum += it->second * p1.second;
+    if (it != smallref.end() && it->first == p1->first) {
+      sum += it->second * p1->second;
     }
   }
   return sum;
@@ -1064,7 +1078,7 @@ public:
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to contract: " << time_taken << std::endl;
-    std::cout<<"Got "<<result.get_nnz_count()<<" nonzeros"<<std::endl;
+    std::cout << "Got " << result.get_nnz_count() << " nonzeros" << std::endl;
     start = std::chrono::high_resolution_clock::now();
 
     BoundedCoordinate sample_batch =
@@ -1123,8 +1137,8 @@ public:
          liter++) {
       for (auto riter = right_indexed.begin(); riter != right_indexed.end();
            riter++) {
-        std::vector<std::pair<uint64_t, DT>> &left = liter.value();
-        std::vector<std::pair<uint64_t, DT>> &right = riter.value();
+        std::vector<std::pair<uint64_t, DT>> &left = liter->second;
+        std::vector<std::pair<uint64_t, DT>> &right = riter->second;
         DT res = sort_join(left, right);
         if (res == DT())
           continue;
@@ -1143,9 +1157,9 @@ public:
   }
 
   template <class RES, class RIGHT>
-  AtomicCompactTensor<RES>
-  parallel_inner_inner_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
-                                CoOrdinate right_contr) {
+  AtomicListTensor<RES> parallel_inner_inner_multiply(Tensor<RIGHT> &other,
+                                                      CoOrdinate left_contr,
+                                                      CoOrdinate right_contr) {
     // for l
     //    for r
     //       for coiter
@@ -1153,8 +1167,6 @@ public:
     BoundedCoordinate sample_left = nonzeros[0].get_coords().get_bounded(shape);
     BoundedCoordinate sample_right =
         other.get_nonzeros()[0].get_coords().get_bounded(other.get_shape_ref());
-    using hashmap =
-        tsl::hopscotch_map<uint64_t, std::vector<std::pair<CoOrdinate, DT>>>;
     std::chrono::high_resolution_clock::time_point start, end;
     start = std::chrono::high_resolution_clock::now();
     // Make a vector with 0 to dimensionality - 1.
@@ -1173,22 +1185,20 @@ public:
             .count();
     std::cout << "Time taken to index: " << time_taken << std::endl;
     // reserve largest possible space to begin with
-    AtomicCompactTensor<RES> result(
-        left_indexed.get_size() * right_indexed.get_size(),
-        this->get_dimensionality() + other.get_dimensionality() - 2);
-
-    tf::Executor exec;
+    AtomicListTensor<RES> result(this->get_dimensionality() +
+                                 other.get_dimensionality() - 2);
+    tf::Executor exec{2};
     tf::Taskflow taskflow;
     start = std::chrono::high_resolution_clock::now();
     for (auto liter = left_indexed.begin(); liter != left_indexed.end();
          liter++) {
       for (auto riter = right_indexed.begin(); riter != right_indexed.end();
            riter++) {
-        std::vector<std::pair<uint64_t, DT>> &left = liter.value();
-        std::vector<std::pair<uint64_t, DT>> &right = riter.value();
+        std::vector<std::pair<uint64_t, DT>>& left = liter->second;
+        std::vector<std::pair<uint64_t, DT>>& right = riter->second;
         uint64_t leftcord = liter->first;
         uint64_t rightcord = riter->first;
-        taskflow.emplace([&]() mutable {
+        taskflow.emplace([&result, leftcord, rightcord, &sample_left, &sample_right, left, right]() mutable {
           DT res = sort_join(left, right);
           if (res == DT())
             return;
@@ -1203,8 +1213,11 @@ public:
     time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
+    std::cout<<"Size of left indexed "<<left_indexed.get_size()<<std::endl;
+    std::cout<<"Size of right indexed "<<right_indexed.get_size()<<std::endl;
     std::cout << "Time taken to contract: " << time_taken << std::endl;
-    std::cout << "Got " << result.get_nnz_count() << " nonzeros" << std::endl;
+    std::cout << "Got " << result.get_nnz_count() << " nonzeros" <<
+    std::endl;
     return result;
   }
 
