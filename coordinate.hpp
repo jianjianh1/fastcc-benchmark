@@ -604,7 +604,7 @@ public:
     for (int i = 0; i < this->get_dimensionality(); i++) {
       linearlized_cord += coords[i];
       if (i != this->get_dimensionality() - 1) {
-        linearlized_cord *= max_indices[i + 1];
+        linearlized_cord *= (max_indices[i + 1] + 1);
       }
     }
     return linearlized_cord;
