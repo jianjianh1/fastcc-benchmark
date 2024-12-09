@@ -372,12 +372,13 @@ public:
 };
 
 template <class DT> class SmallIndexedTensor {
-  //using hashmap_vals =
-  //    emhash8::HashMap<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
+  // using hashmap_vals =
+  //     emhash8::HashMap<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
   using hashmap_vals =
-      ankerl::unordered_dense::map<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
-  //using hashmap_vals =
-  //    tsl::hopscotch_map<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
+      ankerl::unordered_dense::map<uint64_t,
+                                   std::vector<std::pair<uint64_t, DT>>>;
+  // using hashmap_vals =
+  //     tsl::hopscotch_map<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
 
 public:
   hashmap_vals indexed_tensor;
@@ -401,7 +402,7 @@ public:
       auto it = indexed_tensor.find(index);
       if (it != indexed_tensor.end()) {
         it->second.push_back({remaining, nnz.get_data()});
-        //it.value().push_back({remaining, nnz.get_data()});
+        // it.value().push_back({remaining, nnz.get_data()});
       } else {
         indexed_tensor[index] = {{remaining, nnz.get_data()}};
       }
@@ -410,6 +411,87 @@ public:
 
   uint64_t get_size() { return indexed_tensor.size(); }
   uint64_t get_linearization_bound() { return max_inner_val; }
+};
+
+template <class DT> class TileIndexedTensor {
+  // using hashmap_vals =
+  //     emhash8::HashMap<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
+  using inner_list = std::vector<std::pair<uint64_t, DT>>;
+  using middle_map = ankerl::unordered_dense::map<uint64_t, inner_list>;
+  // Not sure about this, could be a vector if tiles are not degenerate.
+  using tile_map = ankerl::unordered_dense::map<uint64_t, middle_map>;
+
+public:
+  tile_map indexed_tensor;
+  int *shape = nullptr;
+  int tile_size = 0;
+
+  using iterator = typename tile_map::iterator;
+  using value_type = typename tile_map::value_type;
+  iterator begin() { return indexed_tensor.begin(); }
+  iterator end() { return indexed_tensor.end(); }
+
+  TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords,
+                    int tile_size = 0)
+      : tile_size(tile_size) {
+    // Tile the dense space 0 to max_inner_val.
+    base_tensor._infer_shape();
+    shape = base_tensor.get_shape_ref();
+    uint64_t max_inner_val = 0;
+    std::vector<uint64_t> contraction_cords(base_tensor.get_size());
+    std::vector<uint64_t> external_cords(base_tensor.get_size());
+    int iter = 0;
+    for (auto &nnz : base_tensor) {
+      uint64_t index = nnz.get_coords().gather(index_coords).linearize();
+      uint64_t remaining = nnz.get_coords().remove(index_coords).linearize();
+      if (remaining >= max_inner_val) {
+        max_inner_val = remaining;
+      }
+      contraction_cords[iter] = index;
+      external_cords[iter++] = remaining;
+    }
+    if (this->tile_size == 0) {
+      this->tile_size = (int)sqrt(max_inner_val);
+    }
+    std::cout<<"Tile size is "<<this->tile_size<<std::endl;
+    // make one extra tile with remainder.
+    for (int iter = 0; iter < base_tensor.get_size(); iter++) {
+      uint64_t contraction_index = contraction_cords[iter];
+      uint64_t remaining = external_cords[iter];
+      uint64_t tile = remaining / this->tile_size;
+      uint64_t inner = remaining % this->tile_size;
+      DT data = base_tensor.get_nonzeros()[iter].get_data();
+      auto middle_slice = indexed_tensor.find(tile);
+      if (middle_slice != indexed_tensor.end()) {
+        auto inner_slice = middle_slice->second.find(contraction_index);
+        if (inner_slice != middle_slice->second.end()) {
+          inner_slice->second.push_back({inner, data});
+        } else {
+          middle_slice->second[contraction_index] = {
+              {inner, data}};
+        }
+      } else {
+        inner_list new_inner_list({{inner, data}});
+        indexed_tensor[tile] = {{contraction_index, new_inner_list}};
+      }
+    }
+    //assert(this->get_size() ==
+    //       base_tensor.get_size()); // TODO: remove before flight
+  }
+
+  uint64_t get_size() {
+    uint64_t count = 0;
+    for (auto &tile : indexed_tensor) {
+      for (auto &middle : tile.second) {
+          count += middle.second.size();
+      }
+    }
+    return count;
+  }
+  uint64_t get_linear_index(uint64_t tile_index, uint64_t index_in_tile) {
+    return tile_index * tile_size + index_in_tile;
+  }
+  uint64_t num_tiles() { return indexed_tensor.size(); }
 };
 
 template <class DT> class IndexedTensor {
@@ -555,7 +637,7 @@ template <class DT> class OutputTensorHashMap {
 private:
   // using lowest_map =
   //     tsl::hopscotch_map<uint64_t, DT>;
-  //using lowest_map = ankerl::unordered_dense::map<uint64_t, DT>;
+  // using lowest_map = ankerl::unordered_dense::map<uint64_t, DT>;
   using lowest_map = emhash8::HashMap<uint64_t, DT>;
   // using lowest_map = absl::flat_hash_map<uint64_t, DT>;
   using middle_map = tsl::hopscotch_map<uint64_t, lowest_map>;
@@ -1031,7 +1113,8 @@ public:
     int result_dimensionality =
         this->get_dimensionality() + other.get_dimensionality() -
         (left_contr.get_dimensionality() + right_contr.get_dimensionality());
-    std::cout<<"Result dimensionality: "<<result_dimensionality<<std::endl;
+    std::cout << "Result dimensionality: " << result_dimensionality
+              << std::endl;
     std::chrono::high_resolution_clock::time_point start, end;
     start = std::chrono::high_resolution_clock::now();
     SmallIndexedTensor<DT> left_indexed =
@@ -1042,14 +1125,15 @@ public:
     uint64_t right_inner_max = right_indexed.get_linearization_bound();
 
     DT *accumulator =
-        (DT *)malloc((left_inner_max + 1) * (right_inner_max + 1)*sizeof(DT));
-    std::fill(accumulator, accumulator + (left_inner_max + 1) * (right_inner_max + 1), DT());
+        (DT *)malloc((left_inner_max + 1) * (right_inner_max + 1) * sizeof(DT));
+    std::fill(accumulator,
+              accumulator + (left_inner_max + 1) * (right_inner_max + 1), DT());
     if (accumulator == nullptr) {
       std::cerr << "Failed to allocate memory for accumulator" << std::endl;
       exit(1);
-    } else{
-        std::cout << "Allocated "<<(left_inner_max + 1) * (right_inner_max + 1)<< " elts for accumulator" << std::endl;
-
+    } else {
+      std::cout << "Allocated " << (left_inner_max + 1) * (right_inner_max + 1)
+                << " elts for accumulator" << std::endl;
     }
     end = std::chrono::high_resolution_clock::now();
     double time_taken =
@@ -1065,8 +1149,8 @@ public:
              left_entry.second) { // loop over (e_l, nnz_l): external
                                   // left, nnz at that external left.
           for (auto &right_ev : right_entry->second) {
-            accumulator[left_ev.first * (right_inner_max + 1) + right_ev.first] +=
-                left_ev.second * right_ev.second;
+            accumulator[left_ev.first * (right_inner_max + 1) +
+                        right_ev.first] += left_ev.second * right_ev.second;
           }
         }
       }
@@ -1086,16 +1170,112 @@ public:
                                          .get_bounded(other.get_shape_ref());
     start = std::chrono::high_resolution_clock::now();
     CompactTensor<RES> result_tensor = CompactTensor<RES>(
-        (left_inner_max+ 1) * (right_inner_max + 1), result_dimensionality);
+        (left_inner_max + 1) * (right_inner_max + 1), result_dimensionality);
     for (uint64_t i = 0; i < left_inner_max + 1; i++) {
       for (uint64_t j = 0; j < right_inner_max + 1; j++) {
         if (accumulator[i * (right_inner_max + 1) + j] == DT())
           continue;
         CompactCordinate this_cord =
             CompactCordinate(i, sample_left, j, sample_right);
-        result_tensor.push_nnz(accumulator[i * (right_inner_max + 1) + j], this_cord);
+        result_tensor.push_nnz(accumulator[i * (right_inner_max + 1) + j],
+                               this_cord);
       }
     }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to writeback: " << time_taken << std::endl;
+    std::cout << "Got " << result_tensor.get_nnz_count() << " nonzeros"
+              << std::endl;
+    return result_tensor;
+  }
+
+  template <class RES, class RIGHT>
+  ListTensor<RES> tiled_outer_multiply(Tensor<RIGHT> &other,
+                                       CoOrdinate left_contr,
+                                       CoOrdinate right_contr, int tile_size = 0) {
+    // for l_T
+    //    for c
+    //        for r
+    //            for T_l
+    int result_dimensionality =
+        this->get_dimensionality() + other.get_dimensionality() -
+        (left_contr.get_dimensionality() + right_contr.get_dimensionality());
+    BoundedCoordinate sample_left = this->nonzeros[0]
+                                        .get_coords()
+                                        .remove(left_contr)
+                                        .get_bounded(this->get_shape_ref());
+    BoundedCoordinate sample_right = other.nonzeros[0]
+                                         .get_coords()
+                                         .remove(right_contr)
+                                         .get_bounded(other.get_shape_ref());
+    std::cout << "Result dimensionality: " << result_dimensionality
+              << std::endl;
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, left_contr, tile_size);
+    uint64_t left_inner_max = left_indexed.tile_size;
+    SmallIndexedTensor<RIGHT> right_indexed =
+        SmallIndexedTensor<RIGHT>(other, right_contr);
+    uint64_t right_inner_max = right_indexed.get_linearization_bound();
+
+    DT *accumulator =
+        (DT *)malloc((left_inner_max) * (right_inner_max + 1) * sizeof(DT));
+    if (accumulator == nullptr) {
+      std::cerr << "Failed to allocate memory for accumulator" << std::endl;
+      exit(1);
+    } else {
+      std::cout << "Allocated " << (left_inner_max) * (right_inner_max + 1)
+                << " elts for accumulator" << std::endl;
+    }
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
+    ListTensor<RES> result_tensor(result_dimensionality);
+    start = std::chrono::high_resolution_clock::now();
+
+    for (auto &left_tile : left_indexed.indexed_tensor) {
+      std::fill(accumulator,
+                accumulator + (left_inner_max) * (right_inner_max + 1),
+                DT());
+      for (const auto &left_entry : left_tile.second) {
+        auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
+        if (right_entry != right_indexed.indexed_tensor.end()) {
+          for (auto &left_ev :
+               left_entry.second) { // loop over (e_l, nnz_l): external
+                                    // left, nnz at that external left.
+            for (auto &right_ev : right_entry->second) {
+              accumulator[left_ev.first * (right_inner_max + 1) +
+                          right_ev.first] += left_ev.second * right_ev.second;
+            }
+          }
+        }
+      }
+      // drain here.
+      for (uint64_t i = 0; i < left_inner_max; i++) {
+        for (uint64_t j = 0; j < right_inner_max + 1; j++) {
+          if (accumulator[i * (right_inner_max + 1) + j] == DT())
+            continue;
+          uint64_t left_index = left_indexed.get_linear_index(left_tile.first, i);
+          CompactCordinate this_cord =
+              CompactCordinate(left_index, sample_left, j, sample_right);
+          result_tensor.push_nnz(accumulator[i * (right_inner_max + 1) + j],
+                                 this_cord);
+        }
+      }
+    }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to contract: " << time_taken << std::endl;
+
+    start = std::chrono::high_resolution_clock::now();
+
     end = std::chrono::high_resolution_clock::now();
     time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
