@@ -609,6 +609,33 @@ public:
     }
     return linearlized_cord;
   }
+
+  uint64_t gather_linearize(CoOrdinate const& positions){
+    uint64_t linearlized_cord = 0;
+    for (int i = 0; i < positions.get_dimensionality(); i++) {
+      linearlized_cord += coords[positions.get_index(i)];
+      if (i != positions.get_dimensionality() - 1) {
+        linearlized_cord *= (max_indices[positions.get_index(i + 1)] + 1);
+      }
+    }
+    //assert(linearlized_cord  == this->gather(positions).linearize()); //TODO remove before flight
+    return linearlized_cord;
+  }
+  uint64_t remove_linearize(CoOrdinate const& positions, std::vector<int> const& max_indices_after_remove){
+    uint64_t linearlized_cord = 0;
+    int iter = 1;
+    for (int i = 0; i < this->get_dimensionality(); i++) {
+      if (std::find(positions.begin(), positions.end(), i) == positions.end()) {
+        linearlized_cord += coords[i];
+        if (iter != max_indices_after_remove.size()) {
+          linearlized_cord *= (max_indices_after_remove[iter++] + 1);
+        }
+      }
+    }
+    //assert(linearlized_cord  == this->remove(positions).linearize()); //TODO remove before flight
+    return linearlized_cord;
+
+  }
 };
 
 CoOrdinate BoundedCoordinate::as_coordinate() const {

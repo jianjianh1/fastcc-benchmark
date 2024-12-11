@@ -391,11 +391,11 @@ public:
   iterator end() { return indexed_tensor.end(); }
 
   SmallIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
-    base_tensor._infer_shape();
-    shape = base_tensor.get_shape_ref();
+    //base_tensor._infer_shape();
+    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
     for (auto &nnz : base_tensor) {
-      uint64_t index = nnz.get_coords().gather(index_coords).linearize();
-      uint64_t remaining = nnz.get_coords().remove(index_coords).linearize();
+      uint64_t index = nnz.get_coords().gather_linearize(index_coords);
+      uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape);
       if (remaining >= max_inner_val) {
         max_inner_val = remaining;
       }
@@ -430,30 +430,60 @@ public:
   using value_type = typename tile_map::value_type;
   iterator begin() { return indexed_tensor.begin(); }
   iterator end() { return indexed_tensor.end(); }
-
   TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords,
-                    int tile_size = 0)
+                    int tile_size)
       : tile_size(tile_size) {
     // Tile the dense space 0 to max_inner_val.
-    base_tensor._infer_shape();
-    shape = base_tensor.get_shape_ref();
+    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
+    if(this->tile_size == 0) {
+        this->tile_size = 1;
+    }
+    for (auto &nnz : base_tensor) {
+      uint64_t contraction_index =
+          nnz.get_coords().gather_linearize(index_coords);//nnz.get_coords().gather(index_coords).linearize();
+      uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
+      uint64_t tile = remaining / this->tile_size;
+      uint64_t inner = remaining % this->tile_size;
+      DT data = nnz.get_data();
+      auto middle_slice = indexed_tensor.find(tile);
+      if (middle_slice != indexed_tensor.end()) {
+        auto inner_slice = middle_slice->second.find(contraction_index);
+        if (inner_slice != middle_slice->second.end()) {
+          inner_slice->second.push_back({inner, data});
+        } else {
+          middle_slice->second[contraction_index] = {{inner, data}};
+        }
+      } else {
+        inner_list new_inner_list({{inner, data}});
+        indexed_tensor[tile] = {{contraction_index, new_inner_list}};
+      }
+    }
+    //assert(this->get_size() ==
+    //       base_tensor.get_size()); // TODO: remove before flight
+  }
+
+  TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
+    // Tile the dense space 0 to max_inner_val.
+    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
     uint64_t max_inner_val = 0;
     std::vector<uint64_t> contraction_cords(base_tensor.get_size());
     std::vector<uint64_t> external_cords(base_tensor.get_size());
     int iter = 0;
+    auto start = std::chrono::high_resolution_clock::now();
     for (auto &nnz : base_tensor) {
-      uint64_t index = nnz.get_coords().gather(index_coords).linearize();
-      uint64_t remaining = nnz.get_coords().remove(index_coords).linearize();
+      uint64_t index = nnz.get_coords().gather_linearize(index_coords);
+      uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape);
       if (remaining >= max_inner_val) {
         max_inner_val = remaining;
       }
       contraction_cords[iter] = index;
       external_cords[iter++] = remaining;
     }
-    if (this->tile_size == 0) {
-      this->tile_size = (int)sqrt(max_inner_val);
-    }
-    std::cout<<"Tile size is "<<this->tile_size<<std::endl;
+    this->tile_size = (int)sqrt(max_inner_val);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    std::cout << "Time to calculate tile_size: " << elapsed.count()
+              << std::endl;
     // make one extra tile with remainder.
     for (int iter = 0; iter < base_tensor.get_size(); iter++) {
       uint64_t contraction_index = contraction_cords[iter];
@@ -467,23 +497,22 @@ public:
         if (inner_slice != middle_slice->second.end()) {
           inner_slice->second.push_back({inner, data});
         } else {
-          middle_slice->second[contraction_index] = {
-              {inner, data}};
+          middle_slice->second[contraction_index] = {{inner, data}};
         }
       } else {
         inner_list new_inner_list({{inner, data}});
         indexed_tensor[tile] = {{contraction_index, new_inner_list}};
       }
     }
-    //assert(this->get_size() ==
-    //       base_tensor.get_size()); // TODO: remove before flight
+    // assert(this->get_size() ==
+    //        base_tensor.get_size()); // TODO: remove before flight
   }
 
   uint64_t get_size() {
     uint64_t count = 0;
     for (auto &tile : indexed_tensor) {
       for (auto &middle : tile.second) {
-          count += middle.second.size();
+        count += middle.second.size();
       }
     }
     return count;
@@ -1192,9 +1221,9 @@ public:
   }
 
   template <class RES, class RIGHT>
-  ListTensor<RES> tiled_outer_multiply(Tensor<RIGHT> &other,
-                                       CoOrdinate left_contr,
-                                       CoOrdinate right_contr, int tile_size = 0) {
+  ListTensor<RES>
+  tiled_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                       CoOrdinate right_contr, int tile_size = 0) {
     // for l_T
     //    for c
     //        for r
@@ -1214,12 +1243,16 @@ public:
               << std::endl;
     std::chrono::high_resolution_clock::time_point start, end;
     start = std::chrono::high_resolution_clock::now();
-    TileIndexedTensor<DT> left_indexed =
-        TileIndexedTensor<DT>(*this, left_contr, tile_size);
-    uint64_t left_inner_max = left_indexed.tile_size;
+    // get LLC size in bytes
+    //uint64_t llc_size = 16 * 1024 * 1024 / sizeof(DT);
+
     SmallIndexedTensor<RIGHT> right_indexed =
         SmallIndexedTensor<RIGHT>(other, right_contr);
     uint64_t right_inner_max = right_indexed.get_linearization_bound();
+    //tile_size = llc_size / (right_inner_max + 1);
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, left_contr);
+    uint64_t left_inner_max = left_indexed.tile_size;
 
     DT *accumulator =
         (DT *)malloc((left_inner_max) * (right_inner_max + 1) * sizeof(DT));
@@ -1240,8 +1273,7 @@ public:
 
     for (auto &left_tile : left_indexed.indexed_tensor) {
       std::fill(accumulator,
-                accumulator + (left_inner_max) * (right_inner_max + 1),
-                DT());
+                accumulator + (left_inner_max) * (right_inner_max + 1), DT());
       for (const auto &left_entry : left_tile.second) {
         auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
         if (right_entry != right_indexed.indexed_tensor.end()) {
@@ -1260,7 +1292,8 @@ public:
         for (uint64_t j = 0; j < right_inner_max + 1; j++) {
           if (accumulator[i * (right_inner_max + 1) + j] == DT())
             continue;
-          uint64_t left_index = left_indexed.get_linear_index(left_tile.first, i);
+          uint64_t left_index =
+              left_indexed.get_linear_index(left_tile.first, i);
           CompactCordinate this_cord =
               CompactCordinate(left_index, sample_left, j, sample_right);
           result_tensor.push_nnz(accumulator[i * (right_inner_max + 1) + j],
@@ -1472,7 +1505,7 @@ public:
     AtomicListTensor<RES> result(
         this->get_dimensionality() + other.get_dimensionality() -
         (left_contr.get_dimensionality() + right_contr.get_dimensionality()));
-    tf::Executor exec{2};
+    tf::Executor exec;
     tf::Taskflow taskflow;
     start = std::chrono::high_resolution_clock::now();
     for (auto liter = left_indexed.begin(); liter != left_indexed.end();
