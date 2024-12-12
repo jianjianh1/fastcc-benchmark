@@ -662,7 +662,51 @@ DT hash_join(std::vector<std::pair<uint64_t, DT>> &left,
   return sum;
 }
 
-template <class DT> class OutputTensorHashMap {
+template <class DT> class OutputTensorHashMap2D {
+private:
+  using lowest_map = emhash8::HashMap<uint64_t, DT>;
+  std::forward_list<std::pair<uint64_t, lowest_map>> nonzeros;
+
+public:
+  void add_row(uint64_t left_cord) { nonzeros.push_front({left_cord, lowest_map(5000)}); }
+  void update_last_row(uint64_t right_cord, DT data) {
+    lowest_map &current_lowest = nonzeros.front().second;
+    auto col_entry = current_lowest.find(right_cord);
+    if (col_entry != current_lowest.end()) {
+      col_entry->second += data;
+    } else {
+      current_lowest[right_cord] = data;
+    }
+  }
+
+  CompactTensor<DT> drain(BoundedCoordinate &sample_left,
+                          BoundedCoordinate &sample_right) {
+    CompactTensor<DT> result(this->get_nnz_count(),
+                             sample_left.get_dimensionality() +
+                                 sample_right.get_dimensionality());
+    this->drain_into(result, sample_left, sample_right);
+    return result;
+  }
+  template<class SomeTensor> void drain_into(SomeTensor &result, BoundedCoordinate &sample_left,
+                  BoundedCoordinate &sample_right) {
+    for (auto &first_slice : nonzeros) {
+      for (auto &nnz : first_slice.second) {
+        CompactCordinate this_cord = CompactCordinate(
+            first_slice.first, sample_left, nnz.first, sample_right);
+        result.push_nnz(nnz.second, this_cord);
+      }
+    }
+  }
+  int get_nnz_count() {
+    int count = 0;
+    for (auto &top_slice : nonzeros) {
+      count += top_slice.second.size();
+    }
+    return count;
+  }
+};
+
+template <class DT> class OutputTensorHashMap3D {
 private:
   // using lowest_map =
   //     tsl::hopscotch_map<uint64_t, DT>;
@@ -731,7 +775,7 @@ public:
 
     return result;
   }
-  void drain_into(CompactTensor<DT> &result, BoundedCoordinate &sample_batch,
+  template<class SomeTensor> void drain_into(SomeTensor &result, BoundedCoordinate &sample_batch,
                   BoundedCoordinate &sample_left,
                   BoundedCoordinate &sample_right) {
     for (auto &first_slice : nonzeros) {
@@ -1320,9 +1364,10 @@ public:
   }
 
   // inner outer multiplication
+  // has batch indices
   template <class RES, class RIGHT>
   CompactTensor<RES>
-  inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+  _inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
                        CoOrdinate left_batch, CoOrdinate right_contr,
                        CoOrdinate right_batch) {
     // for l
@@ -1351,7 +1396,7 @@ public:
     std::cout << "Time taken to index: " << time_taken << std::endl;
 
     start = std::chrono::high_resolution_clock::now();
-    OutputTensorHashMap<RES> result;
+    OutputTensorHashMap3D<RES> result;
     for (auto &left_slice : left_indexed) {
       const BoundedCoordinate &left_ext_cordinate = left_slice.first;
       result.add_row(left_ext_cordinate);
@@ -1401,6 +1446,86 @@ public:
         right_indexed.begin()->second.begin()->first;
     CompactTensor<RES> result_tensor =
         result.drain(sample_batch, sample_left, sample_right);
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to writeback: " << time_taken << std::endl;
+    std::cout << "Got " << result_tensor.get_nnz_count() << " nonzeros"
+              << std::endl;
+
+    return result_tensor;
+  }
+
+  // This version has no batch indices
+  template <class RES, class RIGHT>
+  CompactTensor<RES>
+  inner_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                       CoOrdinate right_contr) {
+    // for l
+    //    for coiter
+    //       for r
+
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
+    // Make a vector with 0 to dimensionality - 1.
+    std::vector<int> all_indices = std::vector<int>(this->get_dimensionality());
+    std::iota(all_indices.begin(), all_indices.end(), 0);
+    CoOrdinate left_external = CoOrdinate(all_indices).remove(left_contr);
+    SmallIndexedTensor<DT> left_indexed = SmallIndexedTensor<DT>(*this, left_external);
+
+    SmallIndexedTensor<RIGHT> right_indexed = SmallIndexedTensor<RIGHT>(other, right_contr);
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
+
+    start = std::chrono::high_resolution_clock::now();
+    OutputTensorHashMap2D<RES> result;
+    for (auto &left_slice : left_indexed) {
+      result.add_row(left_slice.first);
+      for (auto left_nnz : left_slice.second) {
+        auto right_slice = right_indexed.indexed_tensor.find(left_nnz.first);
+        if (right_slice != right_indexed.indexed_tensor.end()) {
+          // There is atleast one nnz matching
+          for (auto &right_nnz : right_slice->second) {
+            DT left_val = left_nnz.second;
+            RIGHT right_val = right_nnz.second;
+            RES outp;
+            if constexpr (std::is_same<DT, densevec>() &&
+                          std::is_same<RIGHT, densevec>() &&
+                          std::is_same<RES, densemat>()) {
+              outp = left_val.densevec::outer(right_val);
+            } else if constexpr (std::is_same<DT, densemat>() &&
+                                 std::is_same<RIGHT, densemat>() &&
+                                 std::is_same<RES, double>()) {
+              outp = left_val.mult_reduce(right_val);
+
+            } else {
+              outp = left_val * right_val;
+            }
+            result.update_last_row(right_nnz.first, outp);
+          }
+        }
+      }
+    }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to contract: " << time_taken << std::endl;
+    std::cout << "Got " << result.get_nnz_count() << " nonzeros" << std::endl;
+    start = std::chrono::high_resolution_clock::now();
+
+    BoundedCoordinate sample_left = this->nonzeros[0]
+                                        .get_coords()
+                                        .remove(left_contr)
+                                        .get_bounded(this->get_shape_ref());
+    BoundedCoordinate sample_right =
+        other.nonzeros[0].get_coords().remove(right_contr).get_bounded(other.get_shape_ref());
+    CompactTensor<RES> result_tensor =
+        result.drain(sample_left, sample_right);
     end = std::chrono::high_resolution_clock::now();
     time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
@@ -1573,12 +1698,12 @@ public:
 
     tf::Executor exec;
     tf::Taskflow taskflow;
-    std::forward_list<OutputTensorHashMap<RES>> task_local_results;
+    std::forward_list<OutputTensorHashMap3D<RES>> task_local_results;
     start = std::chrono::high_resolution_clock::now();
     for (auto &left_slice : left_indexed) {
       // OutputTensorHashMap<RES> result;
-      task_local_results.push_front(OutputTensorHashMap<RES>());
-      OutputTensorHashMap<RES> &result = task_local_results.front();
+      task_local_results.push_front(OutputTensorHashMap3D<RES>());
+      OutputTensorHashMap3D<RES> &result = task_local_results.front();
       taskflow.emplace([&]() {
         const BoundedCoordinate &left_ext_cordinate = left_slice.first;
         result.add_row(left_ext_cordinate);
