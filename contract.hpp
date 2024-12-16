@@ -459,6 +459,109 @@ public:
     return result_tensor;
   }
 
+
+template <class RES, class RIGHT>
+  ListTensor<RES>
+  tile2d_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                       CoOrdinate right_contr, float tile_size = 1.0) {
+    // for l_T
+    //   for r_T
+    //      for c
+    //         for T_r
+    //             for T_l
+    int result_dimensionality =
+        this->get_dimensionality() + other.get_dimensionality() -
+        (left_contr.get_dimensionality() + right_contr.get_dimensionality());
+    BoundedCoordinate sample_left = this->nonzeros[0]
+                                        .get_coords()
+                                        .remove(left_contr)
+                                        .get_bounded(this->get_shape_ref());
+    BoundedCoordinate sample_right = other.nonzeros[0]
+                                         .get_coords()
+                                         .remove(right_contr)
+                                         .get_bounded(other.get_shape_ref());
+    std::cout << "Result dimensionality: " << result_dimensionality
+              << std::endl;
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
+
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, left_contr, tile_size);
+    uint64_t left_inner_max = left_indexed.tile_size;
+    TileIndexedTensor<RIGHT> right_indexed =
+        TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
+    uint64_t right_inner_max = right_indexed.tile_size;
+
+    DT *accumulator =
+        (DT *)malloc((left_inner_max) * (right_inner_max) * sizeof(DT));
+    if (accumulator == nullptr) {
+      std::cerr << "Failed to allocate memory for accumulator" << std::endl;
+      exit(1);
+    } else {
+      std::cout << "Allocated " << (left_inner_max) * (right_inner_max)
+                << " elts for accumulator" << std::endl;
+    }
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
+    ListTensor<RES> result_tensor(result_dimensionality);
+    start = std::chrono::high_resolution_clock::now();
+
+    for (auto &left_tile : left_indexed.indexed_tensor) {
+      for (auto &right_tile : right_indexed.indexed_tensor) {
+        std::fill(accumulator, accumulator + left_inner_max * right_inner_max,
+                  DT());
+        for (const auto &left_entry : left_tile.second) {
+          auto right_entry =
+              right_tile.second.find(left_entry.first);
+          if (right_entry != right_tile.second.end()) {
+            for (auto &left_ev :
+                 left_entry.second) { // loop over (e_l, nnz_l): external
+                                      // left, nnz at that external left.
+              for (auto &right_ev : right_entry->second) {
+                accumulator[left_ev.first * right_inner_max + right_ev.first] +=
+                    left_ev.second * right_ev.second;
+              }
+            }
+          }
+        }
+        // drain here.
+        for (uint64_t i = 0; i < left_inner_max; i++) {
+          for (uint64_t j = 0; j < right_inner_max; j++) {
+            if (accumulator[i * right_inner_max  + j] == DT())
+              continue;
+            uint64_t left_index =
+                left_indexed.get_linear_index(left_tile.first, i);
+            uint64_t right_index =
+                right_indexed.get_linear_index(right_tile.first, j);
+            CompactCordinate this_cord =
+                CompactCordinate(left_index, sample_left, right_index, sample_right);
+            result_tensor.push_nnz(accumulator[i * right_inner_max + j],
+                                   this_cord);
+          }
+        }
+      }
+    }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to contract: " << time_taken << std::endl;
+
+    start = std::chrono::high_resolution_clock::now();
+
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to writeback: " << time_taken << std::endl;
+    std::cout << "Got " << result_tensor.get_nnz_count() << " nonzeros"
+              << std::endl;
+    return result_tensor;
+  }
+
   // inner outer multiplication
   // has batch indices
   template <class RES, class RIGHT>

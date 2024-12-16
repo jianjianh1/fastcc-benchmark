@@ -409,6 +409,7 @@ public:
   tile_map indexed_tensor;
   int *shape = nullptr;
   int tile_size = 0;
+  uint64_t max_inner_val = 0;
 
   using iterator = typename tile_map::iterator;
   using value_type = typename tile_map::value_type;
@@ -446,7 +447,7 @@ public:
     //       base_tensor.get_size()); // TODO: remove before flight
   }
 
-  TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords) {
+  TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords, float scaling_factor = 1.0) {
     // Tile the dense space 0 to max_inner_val.
     auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
     uint64_t max_inner_val = 0;
@@ -463,7 +464,9 @@ public:
       contraction_cords[iter] = index;
       external_cords[iter++] = remaining;
     }
-    this->tile_size = (int)sqrt(max_inner_val);
+    this->max_inner_val = max_inner_val;
+    std::cout<<"Max inner val: "<<max_inner_val<<std::endl;
+    this->tile_size = (int)(sqrt(max_inner_val) * scaling_factor);
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
     std::cout << "Time to calculate tile_size: " << elapsed.count()
