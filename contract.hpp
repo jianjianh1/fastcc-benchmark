@@ -3,6 +3,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "coordinate.hpp"
 #include "taskflow.hpp"
+#include "timer.hpp"
 #include "types.hpp"
 #include "index_tensors.hpp"
 #include <algorithm>
@@ -619,6 +620,8 @@ template <class RES, class RIGHT>
             .count();
     std::cout << "Time taken to index: " << time_taken << std::endl;
     ListTensor<RES> result_tensor(result_dimensionality);
+    Timer mytimer;
+
     start = std::chrono::high_resolution_clock::now();
 
     for (auto &left_tile : left_indexed.indexed_tensor) {
@@ -640,6 +643,7 @@ template <class RES, class RIGHT>
           }
         }
         // drain here.
+        mytimer.start_timer("drain");
         for (uint64_t i = 0; i < left_inner_max; i++) {
           for (uint64_t j = 0; j < right_inner_max; j++) {
             if (accumulator[i * right_inner_max  + j] == DT())
@@ -654,6 +658,7 @@ template <class RES, class RIGHT>
                                    this_cord);
           }
         }
+        mytimer.end_timer("drain");
       }
     }
     end = std::chrono::high_resolution_clock::now();
@@ -661,6 +666,7 @@ template <class RES, class RIGHT>
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to contract: " << time_taken << std::endl;
+    mytimer.print_all_times();
 
     start = std::chrono::high_resolution_clock::now();
 
