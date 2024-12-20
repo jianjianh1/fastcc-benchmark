@@ -4,6 +4,7 @@
 #include <emhash/hash_table8.hpp>
 #include "coordinate.hpp"
 #include <forward_list>
+#include <list>
 #include <random>
 template <class DT> class CompactNNZ {
   CompactCordinate cord;
@@ -62,7 +63,7 @@ public:
   }
 };
 template <class DT> class ListTensor {
-  std::forward_list<CompactNNZ<DT>> nonzeros;
+  std::list<CompactNNZ<DT>> nonzeros;
   uint64_t iter = 0;
   int dimensionality = 42;
 
@@ -74,6 +75,17 @@ public:
     nonzeros.push_front(CompactNNZ<DT>(data, cord));
   }
   int get_nnz_count() { return iter; }
+  int compute_nnz_count(){
+      int local_iter = 0;
+      for(auto &node: nonzeros){
+          local_iter++;
+      }
+      return local_iter;
+  }
+  void concatenate(ListTensor& other){
+      // TODO check if this is linear time, could very well be.
+      nonzeros.splice(nonzeros.begin(), other.nonzeros);
+  }
 };
 
 template <class DT> class CompactTensor {

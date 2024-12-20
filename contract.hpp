@@ -461,7 +461,7 @@ public:
   }
 
   template <class RES, class RIGHT>
-  AtomicListTensor<RES>
+  ListTensor<RES>
   parallel_tile2d_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
                                  CoOrdinate right_contr, int tile_size = 100) {
     // for l_T
@@ -497,6 +497,7 @@ public:
     uint64_t right_inner_max = right_indexed.tile_size;
 
     DT *thread_local_accumulators[num_workers];
+    ListTensor<RES> thread_local_results[num_workers];
     for (int i = 0; i < num_workers; i++) {
       thread_local_accumulators[i] =
           (DT *)malloc((left_inner_max) * (right_inner_max) * sizeof(DT));
@@ -515,7 +516,6 @@ public:
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to index: " << time_taken << std::endl;
-    AtomicListTensor<RES> result_tensor(result_dimensionality);
     start = std::chrono::high_resolution_clock::now();
 
     for (auto &left_tile : left_indexed.indexed_tensor) {
@@ -548,7 +548,7 @@ public:
                   right_indexed.get_linear_index(right_tile.first, j);
               CompactCordinate this_cord = CompactCordinate(
                   left_index, sample_left, right_index, sample_right);
-              result_tensor.push_nnz(myacc[i * right_inner_max + j], this_cord);
+              thread_local_results[executor.this_worker_id()].push_nnz(myacc[i * right_inner_max + j], this_cord);
             }
           }
         });
@@ -562,13 +562,18 @@ public:
     std::cout << "Time taken to contract: " << time_taken << std::endl;
 
     start = std::chrono::high_resolution_clock::now();
-
+    ListTensor<RES> result_tensor = thread_local_results[0];
+    int iter = 0;
+    for(auto &local_res: thread_local_results){
+        if(iter++ == 0) continue;
+        result_tensor.concatenate(local_res);
+    }
     end = std::chrono::high_resolution_clock::now();
     time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to writeback: " << time_taken << std::endl;
-    std::cout << "Got " << result_tensor.get_nnz_count() << " nonzeros"
+    std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
               << std::endl;
     return result_tensor;
   }
