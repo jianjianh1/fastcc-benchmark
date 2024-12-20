@@ -361,6 +361,121 @@ public:
     return result_tensor;
   }
 
+template <class RES, class RIGHT>
+  ListTensor<RES>
+  parallel_tiled_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                       CoOrdinate right_contr, int tile_size = 0) {
+    // for l_T
+    //    for c
+    //        for r
+    //            for T_l
+    int result_dimensionality =
+        this->get_dimensionality() + other.get_dimensionality() -
+        (left_contr.get_dimensionality() + right_contr.get_dimensionality());
+    BoundedCoordinate sample_left = this->nonzeros[0]
+                                        .get_coords()
+                                        .remove(left_contr)
+                                        .get_bounded(this->get_shape_ref());
+    BoundedCoordinate sample_right = other.nonzeros[0]
+                                         .get_coords()
+                                         .remove(right_contr)
+                                         .get_bounded(other.get_shape_ref());
+    std::cout << "Result dimensionality: " << result_dimensionality
+              << std::endl;
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
+    // get LLC size in bytes
+    //uint64_t llc_size = 16 * 1024 * 1024 / sizeof(DT);
+    int num_workers = std::thread::hardware_concurrency()/ 2;
+    tf::Taskflow taskflow;
+    tf::Executor executor(num_workers);
+
+    SmallIndexedTensor<RIGHT> right_indexed =
+        SmallIndexedTensor<RIGHT>(other, right_contr);
+    uint64_t right_inner_max = right_indexed.get_linearization_bound();
+    //tile_size = llc_size / (right_inner_max + 1);
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, left_contr);
+    uint64_t left_inner_max = left_indexed.tile_size;
+
+    DT *thread_local_accumulators[num_workers];
+    ListTensor<RES> thread_local_results[num_workers];
+    for (int i = 0; i < num_workers; i++) {
+      thread_local_accumulators[i] =
+          (DT *)malloc((left_inner_max) * (right_inner_max + 1) * sizeof(DT));
+      if (thread_local_accumulators[i] == nullptr) {
+        std::cerr << "Failed to allocate memory for accumulator" << std::endl;
+        exit(1);
+      } else {
+        std::cout << "Allocated " << (left_inner_max) * (right_inner_max + 1)
+                  << " elts for accumulator" << std::endl;
+      }
+    }
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
+    start = std::chrono::high_resolution_clock::now();
+
+    for (auto &left_tile : left_indexed.indexed_tensor) {
+      taskflow.emplace([&]() mutable {
+        DT *myacc = thread_local_accumulators[executor.this_worker_id()];
+        std::fill(myacc, myacc + left_inner_max * (right_inner_max + 1), DT());
+        for (const auto &left_entry : left_tile.second) {
+          auto right_entry =
+              right_indexed.indexed_tensor.find(left_entry.first);
+          if (right_entry != right_indexed.indexed_tensor.end()) {
+            for (auto &left_ev :
+                 left_entry.second) { // loop over (e_l, nnz_l): external
+                                      // left, nnz at that external left.
+              for (auto &right_ev : right_entry->second) {
+                myacc[left_ev.first * (right_inner_max + 1) + right_ev.first] +=
+                    left_ev.second * right_ev.second;
+              }
+            }
+          }
+        }
+        // drain here.
+        for (uint64_t i = 0; i < left_inner_max; i++) {
+          for (uint64_t j = 0; j < right_inner_max + 1; j++) {
+            if (myacc[i * (right_inner_max + 1) + j] == DT())
+              continue;
+            uint64_t left_index =
+                left_indexed.get_linear_index(left_tile.first, i);
+            CompactCordinate this_cord =
+                CompactCordinate(left_index, sample_left, j, sample_right);
+            thread_local_results[executor.this_worker_id()].push_nnz(
+                myacc[i * (right_inner_max + 1) + j], this_cord);
+          }
+        }
+      });
+    }
+    executor.run(taskflow).wait();
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to contract: " << time_taken << std::endl;
+
+    start = std::chrono::high_resolution_clock::now();
+    ListTensor<RES> result_tensor = thread_local_results[0];
+    int iter = 0;
+    for(auto &local_res: thread_local_results){
+        if(iter++ == 0) continue;
+        result_tensor.concatenate(local_res);
+    }
+    end = std::chrono::high_resolution_clock::now();
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to writeback: " << time_taken << std::endl;
+    std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
+              << std::endl;
+    return result_tensor;
+  }
+
   template <class RES, class RIGHT>
   ListTensor<RES>
   tiled_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
