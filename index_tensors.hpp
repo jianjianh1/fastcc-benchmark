@@ -740,9 +740,10 @@ public:
     uint8_t bitpos = 1 << (7 - (pos % 8));
     int bytepos = pos / 8;
     uint8_t old_mask = this->bitmask[bytepos] & bitpos;
-    if (old_mask == 0)
+    if (old_mask == 0) {
       active_positions[this->pos_iter++] = pos;
-    bitmask[bytepos] |= bitpos;
+      this->bitmask[bytepos] += bitpos;
+    }
     this->data_accumulator[pos] += val;
   }
   template <class TensorType>
