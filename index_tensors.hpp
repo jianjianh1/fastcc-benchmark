@@ -714,6 +714,8 @@ private:
   uint8_t *bitmask;
   uint64_t *active_positions;
   int pos_iter = 0;
+  int global_count = 0;
+  int num_tiles = 1;
   int left_tile_dim = 0;
   int right_tile_dim = 0;
   int left_tile_index = 0;
@@ -761,6 +763,12 @@ public:
       result_tensor.push_nnz(data_accumulator[active_positions[iter]],
                              this_cord);
     }
+    this->global_count += pos_iter;
+    this->num_tiles++;
+  }
+  float percentage_saving(){
+      return float(this->global_count)/float(this->num_tiles * this->left_tile_dim * this->right_tile_dim);
+
   }
 };
 

@@ -673,6 +673,10 @@ template <class RES, class RIGHT>
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to writeback: " << time_taken << std::endl;
+    for(int iter = 0; iter < num_workers; iter++){
+        std::cout<<"accumulator "<<iter<<" "<<thread_local_accumulators[iter].percentage_saving()<<"\% iterations saved"<<std::endl;
+
+    }
     std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
               << std::endl;
     return result_tensor;
