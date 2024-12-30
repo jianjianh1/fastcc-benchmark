@@ -682,6 +682,117 @@ template <class RES, class RIGHT>
     return result_tensor;
   }
 
+// Needs shape for left and right tensors
+  // full outer multiplication
+  template <class RIGHT>
+  void microbench_outer_outer(Tensor<RIGHT> &other,
+                                          CoOrdinate left_contr,
+                                          CoOrdinate right_contr) {
+      std::cout<<"microbench outer outer"<<std::endl;
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
+    SmallIndexedTensor<DT> left_indexed =
+        SmallIndexedTensor<DT>(*this, left_contr);
+    uint64_t left_inner_max = left_indexed.get_linearization_bound();
+    SmallIndexedTensor<RIGHT> right_indexed =
+        SmallIndexedTensor<RIGHT>(other, right_contr);
+    uint64_t right_inner_max = right_indexed.get_linearization_bound();
+
+    DT *accumulator =
+        (DT *)malloc((left_inner_max + 1) * (right_inner_max + 1) * sizeof(DT));
+    std::fill(accumulator,
+              accumulator + (left_inner_max + 1) * (right_inner_max + 1), DT());
+    if (accumulator == nullptr) {
+      std::cerr << "Failed to allocate memory for accumulator" << std::endl;
+      exit(1);
+    } else {
+      std::cout << "Allocated " << (left_inner_max + 1) * (right_inner_max + 1)
+                << " elts for accumulator" << std::endl;
+    }
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
+    uint64_t body_count = 0;
+    start = std::chrono::high_resolution_clock::now();
+
+    for (auto &left_entry : left_indexed.indexed_tensor) {
+      auto right_entry = right_indexed.indexed_tensor.find(left_entry.first);
+      if (right_entry != right_indexed.indexed_tensor.end()) {
+        for (auto &left_ev :
+             left_entry.second) { // loop over (e_l, nnz_l): external
+                                  // left, nnz at that external left.
+          for (auto &right_ev : right_entry->second) {
+              body_count++;
+          }
+        }
+      }
+    }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to contract: " << time_taken << std::endl;
+    std::cout<<"body was hit "<<body_count<<" times"<<std::endl;
+    return;
+  }
+
+  template <class RIGHT>
+  void microbench_tile2d(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                         CoOrdinate right_contr, int tile_size = 100) {
+    // for l_T
+    //   for r_T
+    //      for c
+    //         for T_r
+    //             for T_l
+      std::cout<<"microbench tile2d outer"<<std::endl;
+
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
+
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, left_contr, tile_size);
+    uint64_t left_inner_max = left_indexed.tile_size;
+    TileIndexedTensor<RIGHT> right_indexed =
+        TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
+    uint64_t right_inner_max = right_indexed.tile_size;
+
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
+    start = std::chrono::high_resolution_clock::now();
+
+    uint64_t body_count = 0;
+    for (auto &left_tile : left_indexed.indexed_tensor) {
+      for (auto &right_tile : right_indexed.indexed_tensor) {
+
+        for (const auto &left_entry : left_tile.second) {
+          auto right_entry = right_tile.second.find(left_entry.first);
+          if (right_entry != right_tile.second.end()) {
+            for (auto &left_ev :
+                 left_entry.second) { // loop over (e_l, nnz_l): external
+                                      // left, nnz at that external left.
+              for (auto &right_ev : right_entry->second) {
+                int co_ordinate =
+                    left_ev.first * right_inner_max + right_ev.first;
+                body_count++;
+              }
+            }
+          }
+        }
+      }
+    }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to contract: " << time_taken << std::endl;
+    std::cout << "body was hit " << body_count << " times" << std::endl;
+  }
+
 template <class RES, class RIGHT>
   ListTensor<RES>
   tile2d_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
