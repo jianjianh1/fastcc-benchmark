@@ -708,6 +708,45 @@ public:
   }
 };
 
+template <class DT> class TileAccumulatorDense {
+private:
+  DT *data_accumulator;
+  int left_tile_dim = 0;
+  int right_tile_dim = 0;
+  int left_tile_index = 0;
+  int right_tile_index = 0;
+
+public:
+  TileAccumulatorDense(int left_tile_dim, int right_tile_dim)
+      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
+    int tile_area = left_tile_dim * right_tile_dim;
+    this->data_accumulator = (DT *)calloc(tile_area, sizeof(DT));
+  }
+  void reset_accumulator(int left_tile_index, int right_tile_index) {
+    this->left_tile_index = left_tile_index;
+    this->right_tile_index = right_tile_index;
+  }
+  void update(uint64_t pos, DT val) {
+    this->data_accumulator[pos] += val;
+  }
+  template <class TensorType>
+  void drain_into(TensorType &result_tensor, BoundedCoordinate &sample_left,
+             BoundedCoordinate &sample_right) {
+    for (int iter = 0; iter < left_tile_dim * right_tile_dim; iter++) {
+      if (data_accumulator[iter] == DT())
+        continue;
+      int i = iter / right_tile_dim;
+      int j = iter % right_tile_dim;
+      uint64_t left_index = this->left_tile_index * left_tile_dim + i;
+      uint64_t right_index = this->right_tile_index * right_tile_dim + j;
+      CompactCordinate this_cord =
+          CompactCordinate(left_index, sample_left, right_index, sample_right);
+      result_tensor.push_nnz(data_accumulator[iter], this_cord);
+      data_accumulator[iter] = DT();
+    }
+  }
+};
+
 template <class DT> class TileAccumulator {
 private:
   DT *data_accumulator;

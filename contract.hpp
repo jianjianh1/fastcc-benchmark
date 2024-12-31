@@ -618,6 +618,7 @@ template <class RES, class RIGHT>
           TileAccumulator<DT>(left_inner_max, right_inner_max));
     }
     ListTensor<RES> thread_local_results[num_workers];
+    Timer thread_local_timers[num_workers];
     end = std::chrono::high_resolution_clock::now();
 
     end = std::chrono::high_resolution_clock::now();
@@ -631,9 +632,11 @@ template <class RES, class RIGHT>
       for (auto &right_tile : right_indexed.indexed_tensor) {
 
         taskflow.emplace([&]() mutable {
+          Timer &mytimer = thread_local_timers[executor.this_worker_id()];
           TileAccumulator<DT> &myacc =
               thread_local_accumulators[executor.this_worker_id()];
           myacc.reset_accumulator(left_tile.first, right_tile.first);
+          mytimer.start_timer("filling_tile");
           for (const auto &left_entry : left_tile.second) {
             auto right_entry = right_tile.second.find(left_entry.first);
             if (right_entry != right_tile.second.end()) {
@@ -648,9 +651,12 @@ template <class RES, class RIGHT>
               }
             }
           }
+          mytimer.end_timer("filling_tile");
+          mytimer.start_timer("draining_tile");
           // drain here.
           myacc.drain_into(thread_local_results[executor.this_worker_id()],
                            sample_left, sample_right);
+          mytimer.end_timer("draining_tile");
         });
       }
     }
@@ -673,9 +679,12 @@ template <class RES, class RIGHT>
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to writeback: " << time_taken << std::endl;
-    for(int iter = 0; iter < num_workers; iter++){
-        std::cout<<"accumulator "<<iter<<" "<<thread_local_accumulators[iter].percentage_saving()<<"\% iterations saved"<<std::endl;
-
+    for (int iter = 0; iter < num_workers; iter++) {
+      std::cout << "Thread " << iter << " times are:" << std::endl;
+      thread_local_timers[iter].print_all_times();
+      //std::cout << "accumulator " << iter << " "
+      //          << thread_local_accumulators[iter].percentage_saving()
+      //          << "\% iterations saved" << std::endl;
     }
     std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
               << std::endl;
