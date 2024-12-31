@@ -725,18 +725,20 @@ public:
   TileAccumulator(int left_tile_dim, int right_tile_dim)
       : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
     int tile_area = left_tile_dim * right_tile_dim;
-    this->data_accumulator = (DT *)malloc(tile_area * sizeof(DT));
-    this->bitmask = (uint8_t *)malloc((tile_area / 8) + 1);
-    this->active_positions = (uint64_t *)malloc(tile_area * sizeof(uint64_t));
+    //this->data_accumulator = (DT *)malloc(tile_area * sizeof(DT));
+    this->data_accumulator = (DT *)calloc(tile_area, sizeof(DT));
+    //this->bitmask = (uint8_t *)malloc((tile_area / 8) + 1);
+    this->bitmask = (uint8_t *)calloc((tile_area / 8 + 1), 1);
+    //this->active_positions = (uint64_t *)malloc(tile_area * sizeof(uint64_t));
+    this->active_positions = (uint64_t *)calloc(tile_area, sizeof(uint64_t));
   }
   void reset_accumulator(int left_tile_index, int right_tile_index) {
     this->left_tile_index = left_tile_index;
-    this->pos_iter = 0;
     this->right_tile_index = right_tile_index;
-    int tile_area = left_tile_dim * right_tile_dim;
-    std::fill(this->data_accumulator, this->data_accumulator + tile_area, DT());
-    std::fill(this->bitmask, this->bitmask + (tile_area / 8) + 1, 0);
-    std::fill(this->active_positions, this->active_positions + tile_area, 0);
+    //int tile_area = left_tile_dim * right_tile_dim;
+    //std::fill(this->data_accumulator, this->data_accumulator + tile_area, DT());
+    //std::fill(this->bitmask, this->bitmask + (tile_area / 8) + 1, 0);
+    //std::fill(this->active_positions, this->active_positions + tile_area, 0);
   }
   void update(uint64_t pos, DT val) {
     uint8_t bitpos = 1 << (7 - (pos % 8));
@@ -762,12 +764,16 @@ public:
           CompactCordinate(left_index, sample_left, right_index, sample_right);
       result_tensor.push_nnz(data_accumulator[active_positions[iter]],
                              this_cord);
+      data_accumulator[active_positions[iter]] = DT();
+      bitmask[active_positions[iter]/8] = 0;
+      active_positions[iter] = 0;
     }
     this->global_count += pos_iter;
+    this->pos_iter = 0;
     this->num_tiles++;
   }
   float percentage_saving(){
-      return float(this->global_count)/float(this->num_tiles * this->left_tile_dim * this->right_tile_dim);
+      return 1.0 - float(this->global_count)/float(this->num_tiles * this->left_tile_dim * this->right_tile_dim);
 
   }
 };
