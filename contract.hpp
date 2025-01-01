@@ -611,11 +611,11 @@ template <class RES, class RIGHT>
         TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    std::vector<TileAccumulator<DT>> thread_local_accumulators;
+    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
 
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulator<DT>(left_inner_max, right_inner_max));
+          TileAccumulatorDense<DT>(left_inner_max, right_inner_max));
     }
     ListTensor<RES> thread_local_results[num_workers];
     Timer thread_local_timers[num_workers];
@@ -633,7 +633,7 @@ template <class RES, class RIGHT>
 
         taskflow.emplace([&]() mutable {
           Timer &mytimer = thread_local_timers[executor.this_worker_id()];
-          TileAccumulator<DT> &myacc =
+          TileAccumulatorDense<DT> &myacc =
               thread_local_accumulators[executor.this_worker_id()];
           myacc.reset_accumulator(left_tile.first, right_tile.first);
           mytimer.start_timer("filling_tile");
@@ -805,7 +805,7 @@ template <class RES, class RIGHT>
 template <class RES, class RIGHT>
   ListTensor<RES>
   tile2d_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
-                       CoOrdinate right_contr, float tile_size = 1.0) {
+                       CoOrdinate right_contr, int tile_size = 100) {
     // for l_T
     //   for r_T
     //      for c
@@ -834,15 +834,7 @@ template <class RES, class RIGHT>
         TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    DT *accumulator =
-        (DT *)malloc((left_inner_max) * (right_inner_max) * sizeof(DT));
-    if (accumulator == nullptr) {
-      std::cerr << "Failed to allocate memory for accumulator" << std::endl;
-      exit(1);
-    } else {
-      std::cout << "Allocated " << (left_inner_max) * (right_inner_max)
-                << " elts for accumulator" << std::endl;
-    }
+    TileAccumulator<RES> tile_accumulator(left_inner_max, right_inner_max);
     end = std::chrono::high_resolution_clock::now();
     double time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
@@ -855,8 +847,7 @@ template <class RES, class RIGHT>
 
     for (auto &left_tile : left_indexed.indexed_tensor) {
       for (auto &right_tile : right_indexed.indexed_tensor) {
-        std::fill(accumulator, accumulator + left_inner_max * right_inner_max,
-                  DT());
+        tile_accumulator.reset_accumulator(left_tile.first, right_tile.first);
         for (const auto &left_entry : left_tile.second) {
           auto right_entry =
               right_tile.second.find(left_entry.first);
@@ -865,28 +856,16 @@ template <class RES, class RIGHT>
                  left_entry.second) { // loop over (e_l, nnz_l): external
                                       // left, nnz at that external left.
               for (auto &right_ev : right_entry->second) {
-                accumulator[left_ev.first * right_inner_max + right_ev.first] +=
-                    left_ev.second * right_ev.second;
+                tile_accumulator.update(left_ev.first * right_inner_max +
+                                            right_ev.first,
+                                        left_ev.second * right_ev.second);
               }
             }
           }
         }
         // drain here.
         mytimer.start_timer("drain");
-        for (uint64_t i = 0; i < left_inner_max; i++) {
-          for (uint64_t j = 0; j < right_inner_max; j++) {
-            if (accumulator[i * right_inner_max  + j] == DT())
-              continue;
-            uint64_t left_index =
-                left_indexed.get_linear_index(left_tile.first, i);
-            uint64_t right_index =
-                right_indexed.get_linear_index(right_tile.first, j);
-            CompactCordinate this_cord =
-                CompactCordinate(left_index, sample_left, right_index, sample_right);
-            result_tensor.push_nnz(accumulator[i * right_inner_max + j],
-                                   this_cord);
-          }
-        }
+        tile_accumulator.drain_into(result_tensor, sample_left, sample_right);
         mytimer.end_timer("drain");
       }
     }
