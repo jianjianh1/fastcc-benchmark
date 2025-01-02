@@ -598,10 +598,11 @@ template <class RES, class RIGHT>
     std::cout << "Result dimensionality: " << result_dimensionality
               << std::endl;
     std::chrono::high_resolution_clock::time_point start, end;
-    int num_workers = std::thread::hardware_concurrency()/ 2;
+    int num_workers = std::thread::hardware_concurrency() / 2;
     tf::Taskflow taskflow;
     tf::Executor executor(num_workers);
     float thread_scale = sqrt(1.0 / num_workers);
+    std::cout<<"Tile size is "<<tile_size<<std::endl;
     start = std::chrono::high_resolution_clock::now();
 
     TileIndexedTensor<DT> left_indexed =
@@ -618,7 +619,7 @@ template <class RES, class RIGHT>
           TileAccumulatorDense<DT>(left_inner_max, right_inner_max));
     }
     ListTensor<RES> thread_local_results[num_workers];
-    Timer thread_local_timers[num_workers];
+    Timer first_thread_timer;
     end = std::chrono::high_resolution_clock::now();
 
     end = std::chrono::high_resolution_clock::now();
@@ -632,11 +633,13 @@ template <class RES, class RIGHT>
       for (auto &right_tile : right_indexed.indexed_tensor) {
 
         taskflow.emplace([&]() mutable {
-          Timer &mytimer = thread_local_timers[executor.this_worker_id()];
+          int my_id = executor.this_worker_id();
           TileAccumulatorDense<DT> &myacc =
               thread_local_accumulators[executor.this_worker_id()];
           myacc.reset_accumulator(left_tile.first, right_tile.first);
-          mytimer.start_timer("filling_tile");
+          if (my_id == 0) {
+            first_thread_timer.start_timer("filling_tile");
+          }
           for (const auto &left_entry : left_tile.second) {
             auto right_entry = right_tile.second.find(left_entry.first);
             if (right_entry != right_tile.second.end()) {
@@ -651,12 +654,18 @@ template <class RES, class RIGHT>
               }
             }
           }
-          mytimer.end_timer("filling_tile");
-          mytimer.start_timer("draining_tile");
+          if (my_id == 0) {
+            first_thread_timer.end_timer("filling_tile");
+          }
+          if (my_id == 0) {
+            first_thread_timer.start_timer("draining_tile");
+          }
           // drain here.
           myacc.drain_into(thread_local_results[executor.this_worker_id()],
-                           left_indexed, right_indexed);
-          mytimer.end_timer("draining_tile");
+                           sample_left, sample_right);
+          if (my_id == 0) {
+            first_thread_timer.end_timer("draining_tile");
+          }
         });
       }
     }
@@ -670,21 +679,22 @@ template <class RES, class RIGHT>
     start = std::chrono::high_resolution_clock::now();
     ListTensor<RES> result_tensor = thread_local_results[0];
     int iter = 0;
-    for(auto &local_res: thread_local_results){
-        if(iter++ == 0) continue;
-        result_tensor.concatenate(local_res);
+    for (auto &local_res : thread_local_results) {
+      if (iter++ == 0)
+        continue;
+      result_tensor.concatenate(local_res);
     }
     end = std::chrono::high_resolution_clock::now();
     time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to writeback: " << time_taken << std::endl;
+    first_thread_timer.print_all_times();
     for (int iter = 0; iter < num_workers; iter++) {
       std::cout << "Thread " << iter << " times are:" << std::endl;
-      thread_local_timers[iter].print_all_times();
-      //std::cout << "accumulator " << iter << " "
-      //          << thread_local_accumulators[iter].percentage_saving()
-      //          << "\% iterations saved" << std::endl;
+      // std::cout << "accumulator " << iter << " "
+      //           << thread_local_accumulators[iter].percentage_saving()
+      //           << "\% iterations saved" << std::endl;
     }
     std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
               << std::endl;

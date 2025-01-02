@@ -745,21 +745,20 @@ public:
     this->data_accumulator[pos] += val;
   }
   template <class TensorType>
-  void drain_into(TensorType &result_tensor, TileIndexedTensor<DT> &sample_left,
-             TileIndexedTensor<DT> &sample_right) {
-    for (int iter = 0; iter < left_tile_dim * right_tile_dim; iter++) {
-      if (data_accumulator[iter] == DT())
-        continue;
-      int i = iter / right_tile_dim;
-      int j = iter % right_tile_dim;
-      uint64_t left_index = this->left_tile_index * left_tile_dim + i;
-      uint64_t right_index = this->right_tile_index * right_tile_dim + j;
-      CompactCordinate res_cord = sample_left.delinearize(left_index);
-      res_cord.concat(sample_right.delinearize(right_index));
-      //CompactCordinate this_cord =
-      //    CompactCordinate(left_index, sample_left, right_index, sample_right);
-      result_tensor.push_nnz(data_accumulator[iter], res_cord);
-      data_accumulator[iter] = DT();
+  void drain_into(TensorType &result_tensor, BoundedCoordinate &sample_left,
+                  BoundedCoordinate &sample_right) {
+    for (int i = 0; i < left_tile_dim; i++) {
+      for (int j = 0; j < right_tile_dim; j++) {
+        if (data_accumulator[i * right_tile_dim + j] == DT())
+          continue;
+        uint64_t left_index = this->left_tile_index * left_tile_dim + i;
+        uint64_t right_index = this->right_tile_index * right_tile_dim + j;
+        CompactCordinate res_cord = CompactCordinate(left_index, sample_left,
+                                                     right_index, sample_right);
+        result_tensor.push_nnz(data_accumulator[i * right_tile_dim + j],
+                               res_cord);
+        data_accumulator[i * right_tile_dim + j] = DT();
+      }
     }
   }
 };
