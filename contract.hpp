@@ -655,7 +655,7 @@ template <class RES, class RIGHT>
           mytimer.start_timer("draining_tile");
           // drain here.
           myacc.drain_into(thread_local_results[executor.this_worker_id()],
-                           sample_left, sample_right);
+                           left_indexed, right_indexed);
           mytimer.end_timer("draining_tile");
         });
       }
@@ -834,7 +834,7 @@ template <class RES, class RIGHT>
         TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    TileAccumulator<RES> tile_accumulator(left_inner_max, right_inner_max);
+    TileAccumulatorDense<RES> tile_accumulator(left_inner_max, right_inner_max);
     end = std::chrono::high_resolution_clock::now();
     double time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
@@ -865,7 +865,7 @@ template <class RES, class RIGHT>
         }
         // drain here.
         mytimer.start_timer("drain");
-        tile_accumulator.drain_into(result_tensor, sample_left, sample_right);
+        tile_accumulator.drain_into(result_tensor, left_indexed, right_indexed);
         mytimer.end_timer("drain");
       }
     }

@@ -307,12 +307,17 @@ template <> struct std::hash<OutputCoordinate> {
 class Coordinate;
 
 class CompactCordinate {
-  // char dimensionality;
+  int dimensionality;
   uint32_t *coords = nullptr;
 
 public:
+  CompactCordinate(){
+      dimensionality = 0;
+      coords = nullptr;
+  }
   CompactCordinate(uint64_t bigint, BoundedCoordinate const &sample_cord) {
     int dimensionality = sample_cord.get_dimensionality();
+    this->dimensionality = dimensionality;
     coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
     uint64_t linearized = bigint;
     for (int iter = dimensionality - 1; iter >= 0; iter--) {
@@ -326,6 +331,7 @@ public:
                    uint64_t rightint, BoundedCoordinate const &right_sample) {
     int dimensionality =
         left_sample.get_dimensionality() + right_sample.get_dimensionality();
+    this->dimensionality = dimensionality;
     coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
     uint64_t linearized = leftint;
     if (linearized > 0) {
@@ -349,17 +355,20 @@ public:
   }
   CompactCordinate(const BoundedCoordinate &cord) {
     int dimensionality = cord.get_dimensionality();
+    this->dimensionality = dimensionality;
     coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
     for (int i = 0; i < dimensionality; i++) {
       coords[i] = cord.get_coordinate(i);
     }
   }
+  CompactCordinate(const CoOrdinate &cord);
   CompactCordinate(uint64_t batchint, BoundedCoordinate const &batch_sample,
                    uint64_t leftint, BoundedCoordinate const &left_sample,
                    uint64_t rightint, BoundedCoordinate const &right_sample) {
     int dimensionality = batch_sample.get_dimensionality() +
                          left_sample.get_dimensionality() +
                          right_sample.get_dimensionality();
+    this->dimensionality = dimensionality;
     coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
     uint64_t linearized = batchint;
     if (linearized > 0) {
@@ -393,6 +402,17 @@ public:
             (right_sample.get_bound(iter) + 1);
       }
     }
+  }
+  void concat(const CompactCordinate &other) {
+    this->coords = (uint32_t*) realloc(this->coords, this->dimensionality + other.dimensionality);
+    if(this->coords == nullptr){
+      std::cerr << "dimensionality of self " << this->dimensionality
+                << ", other " << other.dimensionality << std::endl;
+      std::cerr << "Realloc failed, couldn't concat coordinates!" << std::endl;
+      exit(1);
+    }
+    memcpy(this->coords + this->dimensionality, other.coords,
+           other.dimensionality);
   }
   CoOrdinate as_coordinate(int dim) const;
 };
@@ -666,12 +686,21 @@ template <> struct std::hash<CoOrdinate> {
   }
 };
 
-CoOrdinate CompactCordinate::as_coordinate(int dimensions) const {
+CoOrdinate CompactCordinate::as_coordinate(int dimensions = 0) const {
   std::vector<int> result;
-  for (int i = 0; i < dimensions; i++) {
+  for (int i = 0; i < this->dimensionality; i++) {
     result.push_back(coords[i]);
   }
   return result;
+}
+
+CompactCordinate::CompactCordinate(const CoOrdinate &cord) {
+  int dimensionality = cord.get_dimensionality();
+  coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
+  for (int i = 0; i < dimensionality; i++) {
+    coords[i] = cord.get_index(i);
+  }
+  this->dimensionality = dimensionality;
 }
 
 #endif

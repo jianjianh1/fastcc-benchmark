@@ -416,9 +416,11 @@ template <class DT> class TileIndexedTensor {
   using middle_map = ankerl::unordered_dense::map<uint64_t, inner_list>;
   // Not sure about this, could be a vector if tiles are not degenerate.
   using tile_map = ankerl::unordered_dense::map<uint64_t, middle_map>;
+  using index_map = ankerl::unordered_dense::map<uint64_t, CompactCordinate>;
 
 public:
   tile_map indexed_tensor;
+  index_map delinearization_lut;
   int *shape = nullptr;
   int tile_size = 0;
   uint64_t max_inner_val = 0;
@@ -439,6 +441,8 @@ public:
       uint64_t contraction_index =
           nnz.get_coords().gather_linearize(index_coords);//nnz.get_coords().gather(index_coords).linearize();
       uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
+      CompactCordinate this_cord(nnz.get_coords());
+      this->delinearization_lut.insert({remaining, this_cord});
       uint64_t tile = remaining / this->tile_size;
       uint64_t inner = remaining % this->tile_size;
       DT data = nnz.get_data();
@@ -470,6 +474,8 @@ public:
     for (auto &nnz : base_tensor) {
       uint64_t index = nnz.get_coords().gather_linearize(index_coords);
       uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape);
+      CompactCordinate this_cord(nnz.get_coords());
+      this->delinearization_lut.insert({remaining, this_cord});
       if (remaining >= max_inner_val) {
         max_inner_val = remaining;
       }
@@ -518,6 +524,15 @@ public:
   }
   uint64_t get_linear_index(uint64_t tile_index, uint64_t index_in_tile) {
     return tile_index * tile_size + index_in_tile;
+  }
+  CompactCordinate delinearize(uint64_t index) {
+    return this->delinearization_lut[index];
+  }
+  void print_lut() {
+    for (auto &p : this->delinearization_lut) {
+      std::cout << p.first << " " << p.second.as_coordinate().to_string()
+                << std::endl;
+    }
   }
   uint64_t num_tiles() { return indexed_tensor.size(); }
 };
@@ -730,8 +745,8 @@ public:
     this->data_accumulator[pos] += val;
   }
   template <class TensorType>
-  void drain_into(TensorType &result_tensor, BoundedCoordinate &sample_left,
-             BoundedCoordinate &sample_right) {
+  void drain_into(TensorType &result_tensor, TileIndexedTensor<DT> &sample_left,
+             TileIndexedTensor<DT> &sample_right) {
     for (int iter = 0; iter < left_tile_dim * right_tile_dim; iter++) {
       if (data_accumulator[iter] == DT())
         continue;
@@ -739,9 +754,11 @@ public:
       int j = iter % right_tile_dim;
       uint64_t left_index = this->left_tile_index * left_tile_dim + i;
       uint64_t right_index = this->right_tile_index * right_tile_dim + j;
-      CompactCordinate this_cord =
-          CompactCordinate(left_index, sample_left, right_index, sample_right);
-      result_tensor.push_nnz(data_accumulator[iter], this_cord);
+      CompactCordinate res_cord = sample_left.delinearize(left_index);
+      res_cord.concat(sample_right.delinearize(right_index));
+      //CompactCordinate this_cord =
+      //    CompactCordinate(left_index, sample_left, right_index, sample_right);
+      result_tensor.push_nnz(data_accumulator[iter], res_cord);
       data_accumulator[iter] = DT();
     }
   }
