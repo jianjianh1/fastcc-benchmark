@@ -785,12 +785,14 @@ template <class RES, class RIGHT>
     start = std::chrono::high_resolution_clock::now();
 
     uint64_t body_count = 0;
-    for (auto &left_tile : left_indexed.indexed_tensor) {
-      for (auto &right_tile : right_indexed.indexed_tensor) {
+#pragma omp parallel for num_threads(8)
+    for (auto left_tile = left_indexed.indexed_tensor.begin(); left_tile != left_indexed.indexed_tensor.end(); left_tile++) {
+#pragma omp parallel for num_threads(8)
+      for (auto right_tile = right_indexed.indexed_tensor.begin(); right_tile != right_indexed.indexed_tensor.end(); right_tile++) {
 
-        for (const auto &left_entry : left_tile.second) {
-          auto right_entry = right_tile.second.find(left_entry.first);
-          if (right_entry != right_tile.second.end()) {
+        for (const auto &left_entry : left_tile->second) {
+          auto right_entry = right_tile->second.find(left_entry.first);
+          if (right_entry != right_tile->second.end()) {
             for (auto &left_ev :
                  left_entry.second) { // loop over (e_l, nnz_l): external
                                       // left, nnz at that external left.
