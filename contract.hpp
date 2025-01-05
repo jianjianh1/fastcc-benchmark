@@ -612,11 +612,11 @@ template <class RES, class RIGHT>
         TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
+    std::vector<TileAccumulatorMap<DT>> thread_local_accumulators;
 
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulatorDense<DT>(left_inner_max, right_inner_max));
+          TileAccumulatorMap<DT>(left_inner_max, right_inner_max));
     }
     ListTensor<RES> thread_local_results[num_workers];
     Timer first_thread_timer;
@@ -634,7 +634,7 @@ template <class RES, class RIGHT>
 
         taskflow.emplace([&]() mutable {
           int my_id = executor.this_worker_id();
-          TileAccumulatorDense<DT> &myacc =
+          TileAccumulatorMap<DT> &myacc =
               thread_local_accumulators[executor.this_worker_id()];
           myacc.reset_accumulator(left_tile.first, right_tile.first);
           if (my_id == 0) {
@@ -696,8 +696,8 @@ template <class RES, class RIGHT>
     //  //           << thread_local_accumulators[iter].percentage_saving()
     //  //           << "\% iterations saved" << std::endl;
     //}
-    //std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
-    //          << std::endl;
+    std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
+              << std::endl;
     return result_tensor;
   }
 

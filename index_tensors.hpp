@@ -763,6 +763,47 @@ public:
   }
 };
 
+template <class DT> class TileAccumulatorMap {
+  using accmap = ankerl::unordered_dense::map<uint64_t, DT>;
+
+private:
+  accmap accumulator;
+  int left_tile_dim = 0, right_tile_dim = 0;
+  int left_tile_index = 0, right_tile_index = 0;
+
+public:
+  TileAccumulatorMap(int left_tile_dim, int right_tile_dim)
+      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
+    int tile_area = left_tile_dim * right_tile_dim;
+    accumulator = accmap(tile_area);
+  }
+  void reset_accumulator(int left_tile_index, int right_tile_index) {
+    this->left_tile_index = left_tile_index;
+    this->right_tile_index = right_tile_index;
+    accumulator.clear();
+  }
+  void update(uint64_t pos, DT val) {
+    auto it = this->accumulator.find(pos);
+    if (it != this->accumulator.end())
+      it->second += val;
+    else
+      this->accumulator[pos] = val;
+  }
+  template <class TensorType>
+  void drain_into(TensorType &result_tensor, BoundedCoordinate &sample_left,
+                  BoundedCoordinate &sample_right) {
+    for (auto &p : accumulator) {
+      int i = p.first / right_tile_dim;
+      int j = p.first % right_tile_dim;
+      uint64_t left_index = this->left_tile_index * left_tile_dim + i;
+      uint64_t right_index = this->right_tile_index * right_tile_dim + j;
+      CompactCordinate this_cord =
+          CompactCordinate(left_index, sample_left, right_index, sample_right);
+      result_tensor.push_nnz(p.second, this_cord);
+    }
+  }
+};
+
 template <class DT> class TileAccumulator {
 private:
   DT *data_accumulator;
