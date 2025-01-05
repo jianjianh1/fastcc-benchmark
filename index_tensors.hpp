@@ -416,11 +416,11 @@ template <class DT> class TileIndexedTensor {
   using middle_map = ankerl::unordered_dense::map<uint64_t, inner_list>;
   // Not sure about this, could be a vector if tiles are not degenerate.
   using tile_map = ankerl::unordered_dense::map<uint64_t, middle_map>;
-  using index_map = ankerl::unordered_dense::map<uint64_t, CompactCordinate>;
+  //using index_map = ankerl::unordered_dense::map<uint64_t, CompactCordinate>;
 
 public:
   tile_map indexed_tensor;
-  index_map delinearization_lut;
+  //index_map delinearization_lut;
   int *shape = nullptr;
   int tile_size = 0;
   uint64_t max_inner_val = 0;
@@ -442,7 +442,7 @@ public:
           nnz.get_coords().gather_linearize(index_coords);//nnz.get_coords().gather(index_coords).linearize();
       uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
       CompactCordinate this_cord(nnz.get_coords());
-      this->delinearization_lut.insert({remaining, this_cord});
+      //this->delinearization_lut.insert({remaining, this_cord});
       uint64_t tile = remaining / this->tile_size;
       uint64_t inner = remaining % this->tile_size;
       DT data = nnz.get_data();
@@ -475,7 +475,7 @@ public:
       uint64_t index = nnz.get_coords().gather_linearize(index_coords);
       uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape);
       CompactCordinate this_cord(nnz.get_coords());
-      this->delinearization_lut.insert({remaining, this_cord});
+      //this->delinearization_lut.insert({remaining, this_cord});
       if (remaining >= max_inner_val) {
         max_inner_val = remaining;
       }
@@ -525,15 +525,15 @@ public:
   uint64_t get_linear_index(uint64_t tile_index, uint64_t index_in_tile) {
     return tile_index * tile_size + index_in_tile;
   }
-  CompactCordinate delinearize(uint64_t index) {
-    return this->delinearization_lut[index];
-  }
-  void print_lut() {
-    for (auto &p : this->delinearization_lut) {
-      std::cout << p.first << " " << p.second.as_coordinate().to_string()
-                << std::endl;
-    }
-  }
+  //CompactCordinate delinearize(uint64_t index) {
+  //  return this->delinearization_lut[index];
+  //}
+  //void print_lut() {
+  //  for (auto &p : this->delinearization_lut) {
+  //    std::cout << p.first << " " << p.second.as_coordinate().to_string()
+  //              << std::endl;
+  //  }
+  //}
   uint64_t num_tiles() { return indexed_tensor.size(); }
 };
 
