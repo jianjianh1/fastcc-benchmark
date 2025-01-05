@@ -690,14 +690,14 @@ template <class RES, class RIGHT>
             .count();
     std::cout << "Time taken to writeback: " << time_taken << std::endl;
     first_thread_timer.print_all_times();
-    for (int iter = 0; iter < num_workers; iter++) {
-      std::cout << "Thread " << iter << " times are:" << std::endl;
-      // std::cout << "accumulator " << iter << " "
-      //           << thread_local_accumulators[iter].percentage_saving()
-      //           << "\% iterations saved" << std::endl;
-    }
-    std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
-              << std::endl;
+    //for (int iter = 0; iter < num_workers; iter++) {
+    //  std::cout << "Thread " << iter << " times are:" << std::endl;
+    //  // std::cout << "accumulator " << iter << " "
+    //  //           << thread_local_accumulators[iter].percentage_saving()
+    //  //           << "\% iterations saved" << std::endl;
+    //}
+    //std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
+    //          << std::endl;
     return result_tensor;
   }
 
@@ -765,7 +765,7 @@ template <class RES, class RIGHT>
     //      for c
     //         for T_r
     //             for T_l
-      std::cout<<"microbench tile2d outer"<<std::endl;
+      std::cout<<"microbench tile2d outer, tile size is "<<tile_size<<std::endl;
 
     std::chrono::high_resolution_clock::time_point start, end;
     start = std::chrono::high_resolution_clock::now();
