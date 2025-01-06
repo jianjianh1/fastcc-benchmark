@@ -821,6 +821,7 @@ public:
   TileAccumulator(int left_tile_dim, int right_tile_dim)
       : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
     int tile_area = left_tile_dim * right_tile_dim;
+    assert(((right_tile_dim & (right_tile_dim - 1)) == 0));
     //this->data_accumulator = (DT *)malloc(tile_area * sizeof(DT));
     this->data_accumulator = (DT *)calloc(tile_area, sizeof(DT));
     //this->bitmask = (uint8_t *)malloc((tile_area / 8) + 1);
@@ -847,18 +848,18 @@ public:
     this->data_accumulator[pos] += val;
   }
   template <class TensorType>
-  void drain_into(TensorType &result_tensor, TileIndexedTensor<DT> &sample_left,
-             TileIndexedTensor<DT> &sample_right) {
+  void drain_into(TensorType &result_tensor, BoundedCoordinate& sample_left,
+             BoundedCoordinate& sample_right) {
     for (int iter = 0; iter < pos_iter; iter++) {
-      int i = active_positions[iter] / right_tile_dim;
-      int j = active_positions[iter] % right_tile_dim;
+      int i = active_positions[iter] >> int(log(right_tile_dim));
+      int j = active_positions[iter] & (right_tile_dim - 1);
       uint64_t left_index = this->left_tile_index * left_tile_dim + i;
           //left_indexed.get_linear_index(this->left_tile_index, i);
       uint64_t right_index = this->right_tile_index * right_tile_dim + j;
           //right_indexed.get_linear_index(this->right_tile_index, j);
       
-      CompactCordinate this_cord = sample_left.delinearize(left_index);
-      this_cord.concat(sample_right.delinearize(right_index));
+      CompactCordinate this_cord = CompactCordinate(left_index, sample_left, right_index, sample_right);
+      //this_cord.concat(sample_right.delinearize(right_index));
       result_tensor.push_nnz(data_accumulator[active_positions[iter]],
                              this_cord);
       data_accumulator[active_positions[iter]] = DT();
