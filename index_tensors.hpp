@@ -775,7 +775,7 @@ public:
   TileAccumulatorMap(int left_tile_dim, int right_tile_dim)
       : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
     int tile_area = left_tile_dim * right_tile_dim;
-    accumulator = accmap(tile_area);
+    accumulator = accmap(20000);
   }
   void reset_accumulator(int left_tile_index, int right_tile_index) {
     this->left_tile_index = left_tile_index;
