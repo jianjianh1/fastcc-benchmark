@@ -577,6 +577,134 @@ template <class RES, class RIGHT>
 
   template <class RES, class RIGHT>
   ListTensor<RES>
+  parallel_HT_tile2d_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                                 CoOrdinate right_contr, int tile_size = 100) {
+    // for l_T
+    //   for r_T
+    //      for c
+    //         for T_r
+    //             for T_l
+    int result_dimensionality =
+        this->get_dimensionality() + other.get_dimensionality() -
+        (left_contr.get_dimensionality() + right_contr.get_dimensionality());
+    BoundedCoordinate sample_left = this->nonzeros[0]
+                                        .get_coords()
+                                        .remove(left_contr)
+                                        .get_bounded(this->get_shape_ref());
+    BoundedCoordinate sample_right = other.nonzeros[0]
+                                         .get_coords()
+                                         .remove(right_contr)
+                                         .get_bounded(other.get_shape_ref());
+    std::cout << "Result dimensionality: " << result_dimensionality
+              << std::endl;
+    std::chrono::high_resolution_clock::time_point start, end;
+    int num_workers = std::thread::hardware_concurrency()/ 2;
+    tf::Taskflow taskflow;
+    tf::Executor executor(num_workers);
+    float thread_scale = sqrt(1.0 / num_workers);
+    start = std::chrono::high_resolution_clock::now();
+
+
+    ParallelTileIndexedTensor<DT> left_indexed(*this, left_contr, tile_size);
+    ParallelTileIndexedTensor<RIGHT> right_indexed(*this, right_contr, tile_size);
+
+
+    std::cout << "Sizes: " << left_indexed.get_size() << " " << right_indexed.get_size() << std::endl;
+
+    uint64_t left_inner_max = left_indexed.tile_size;
+    uint64_t right_inner_max = right_indexed.tile_size;
+
+    std::vector<TileAccumulator<DT>> thread_local_accumulators;
+
+    for (int _iter = 0; _iter < num_workers; _iter++) {
+      thread_local_accumulators.push_back(
+          TileAccumulator<DT>(left_inner_max, right_inner_max));
+    }
+
+
+
+    ListTensor<RES> thread_local_results[num_workers];
+    Timer thread_local_timers[num_workers];
+    //end = std::chrono::high_resolution_clock::now();
+
+    end = std::chrono::high_resolution_clock::now();
+    double time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to index: " << time_taken << std::endl;
+    start = std::chrono::high_resolution_clock::now();
+
+
+    for (uint64_t i = 0; i < left_indexed.tiles.size(); i++){ //auto &left_tile : left_indexed) {
+      for (uint64_t j = 0; j < right_indexed.tiles.size(); j++){ //auto &right_tile : right_indexed) {
+
+        auto &left_tile = left_indexed.tiles[i];
+        auto &right_tile = right_indexed.tiles[j];
+
+        taskflow.emplace([&]() mutable {
+          Timer &mytimer = thread_local_timers[executor.this_worker_id()];
+          TileAccumulator<DT> &myacc =
+              thread_local_accumulators[executor.this_worker_id()];
+          myacc.reset_accumulator(i, j);
+          mytimer.start_timer("filling_tile");
+          for (const auto &left_entry : left_tile) {
+            auto right_entry = right_tile.find(left_entry.first);
+            if (right_entry != right_tile.end()) {
+              for (auto &left_ev :
+                   left_entry.second) { // loop over (e_l, nnz_l): external
+                                        // left, nnz at that external left.
+                for (auto &right_ev : right_entry->second) {
+                  int co_ordinate =
+                      left_ev.first * right_inner_max + right_ev.first;
+                  myacc.update(co_ordinate, left_ev.second * right_ev.second);
+                }
+              }
+            }
+          }
+          mytimer.end_timer("filling_tile");
+          mytimer.start_timer("draining_tile");
+          // drain here.
+          myacc.drain_into(thread_local_results[executor.this_worker_id()],
+                           sample_left, sample_right);
+          mytimer.end_timer("draining_tile");
+        });
+      }
+    }
+  
+    
+    executor.run(taskflow).wait();
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to contract: " << time_taken << std::endl;
+
+    start = std::chrono::high_resolution_clock::now();
+    ListTensor<RES> result_tensor = thread_local_results[0];
+    int iter = 0;
+    for(auto &local_res: thread_local_results){
+        if(iter++ == 0) continue;
+        result_tensor.concatenate(local_res);
+    }
+    end = std::chrono::high_resolution_clock::now();
+    time_taken =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+            .count();
+    std::cout << "Time taken to writeback: " << time_taken << std::endl;
+    // for (int iter = 0; iter < num_workers; iter++) {
+    //   std::cout << "Thread " << iter << " times are:" << std::endl;
+    //   thread_local_timers[iter].print_all_times();
+    //   //std::cout << "accumulator " << iter << " "
+    //   //          << thread_local_accumulators[iter].percentage_saving()
+    //   //          << "\% iterations saved" << std::endl;
+    // }
+    std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
+              << std::endl;
+    return result_tensor;
+  }
+
+  template <class RES, class RIGHT>
+  ListTensor<RES>
   parallel_tile2d_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
                                  CoOrdinate right_contr, int tile_size = 100) {
     // for l_T
