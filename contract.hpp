@@ -605,8 +605,16 @@ template <class RES, class RIGHT>
     start = std::chrono::high_resolution_clock::now();
 
 
-    ParallelTileIndexedTensor<DT> left_indexed(*this, left_contr, tile_size);
-    ParallelTileIndexedTensor<RIGHT> right_indexed(*this, right_contr, tile_size);
+    //ParallelTileIndexedTensor<DT> left_indexed(*this, left_contr, tile_size);
+    auto left_future = std::async(std::launch::async, [&](){
+        return ParallelTileIndexedTensor<DT>(*this, left_contr, tile_size);
+    });
+    //ParallelTileIndexedTensor<RIGHT> right_indexed(*this, right_contr, tile_size);
+    auto right_future = std::async(std::launch::async, [&](){
+        return ParallelTileIndexedTensor<RIGHT>(other, right_contr, tile_size);
+    });
+    ParallelTileIndexedTensor<DT> left_indexed = left_future.get();
+    ParallelTileIndexedTensor<DT> right_indexed = right_future.get();
 
 
     std::cout << "Sizes: " << left_indexed.get_size() << " " << right_indexed.get_size() << std::endl;
@@ -614,11 +622,11 @@ template <class RES, class RIGHT>
     uint64_t left_inner_max = left_indexed.tile_size;
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    std::vector<TileAccumulator<DT>> thread_local_accumulators;
+    std::vector<TileAccumulatorMap<DT>> thread_local_accumulators;
 
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulator<DT>(left_inner_max, right_inner_max));
+          TileAccumulatorMap<DT>(left_inner_max, right_inner_max));
     }
 
 
@@ -632,6 +640,7 @@ template <class RES, class RIGHT>
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to index: " << time_taken << std::endl;
+    std::cout<< " got "<<left_indexed.num_tiles()<<" tiles"<<std::endl;
     start = std::chrono::high_resolution_clock::now();
 
 
@@ -643,7 +652,7 @@ template <class RES, class RIGHT>
 
         taskflow.emplace([&]() mutable {
           Timer &mytimer = thread_local_timers[executor.this_worker_id()];
-          TileAccumulator<DT> &myacc =
+          TileAccumulatorMap<DT> &myacc =
               thread_local_accumulators[executor.this_worker_id()];
           myacc.reset_accumulator(i, j);
           mytimer.start_timer("filling_tile");
