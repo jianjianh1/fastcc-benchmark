@@ -6,6 +6,8 @@
 #include <forward_list>
 #include <list>
 #include <random>
+#include <cmath>
+
 template <class DT> class CompactNNZ {
   CompactCordinate cord;
   DT data;
@@ -407,6 +409,120 @@ public:
 
   uint64_t get_size() { return indexed_tensor.size(); }
   uint64_t get_linearization_bound() { return max_inner_val; }
+};
+
+//parallel build of TileIndexed tensor - uses array in backend.
+template <class DT> class ParallelTileIndexedTensor {
+  // using hashmap_vals =
+  //     emhash8::HashMap<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
+  using inner_list = std::vector<std::pair<uint64_t, DT>>;
+  using middle_map = ankerl::unordered_dense::map<uint64_t, inner_list>;
+  // Not sure about this, could be a vector if tiles are not degenerate.
+  //using tile_map = ankerl::unordered_dense::map<uint64_t, middle_map>;
+
+  //use an array of tables - faster for scan?
+  using tile_array = std::vector<middle_map>;
+
+public:
+
+  //this is read from directly - need to search.
+  //expose [] operator to return tile - use in 2d_tile_join.
+
+  tile_array tiles;
+  int *shape = nullptr;
+  int tile_size = 0;
+
+  using iterator = typename tile_array::iterator;
+  using value_type = typename tile_array::value_type;
+  iterator begin() { return tiles.begin(); }
+  iterator end() { return tiles.end(); }
+
+  ParallelTileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords, int tile_size = 0): tile_size(tile_size) {
+
+    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
+    if(this->tile_size == 0) {
+        this->tile_size = 1;
+    }
+
+    uint64_t max_possible = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_linearized_max();
+
+    uint64_t n_tiles = (max_possible-1)/tile_size+1;
+
+    tiles.resize(n_tiles);
+
+    //std::cout << "Max possible is " << max_possible << ". therefore " << n_tiles << " tiles of size " << tile_size << std::endl;
+
+    uint64_t num_workers = std::thread::hardware_concurrency()/ 2;
+    //uint64_t num_workers = 32;
+    // tf::Taskflow build_tf;
+    // tf::Executor build_executor(num_workers);
+
+    uint64_t chunk_size = (n_tiles-1) / num_workers+1;
+    //uint64_t one = 1;
+    //uint64_t chunk_size = std::max(actual_chunk,one);
+
+    //printf("Chunk size is %lu\n", chunk_size);
+
+    #pragma omp parallel for
+    for (int i = 0; i < num_workers; i++){
+
+
+        uint64_t worker_id = i;
+
+
+        uint64_t min_bound = chunk_size*worker_id;
+
+        uint64_t max_bound = chunk_size*(worker_id+1);
+
+        //printf("Worker %lu bounds %lu->%lu\n", worker_id, min_bound, max_bound);
+
+
+        if (min_bound > n_tiles) continue;
+
+        //printf("Worker %lu alive! %lu->%lu, %lu < %lu\n", worker_id, min_bound, max_bound, min_bound, n_tiles);
+
+        for (auto &nnz : base_tensor) {
+          uint64_t contraction_index =
+              nnz.get_coords().gather_linearize(index_coords);//nnz.get_coords().gather(index_coords).linearize();
+          uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
+          
+          uint64_t tile = remaining / this->tile_size;
+          if (tile < min_bound || tile >= max_bound) continue;
+
+          CompactCordinate this_cord(nnz.get_coords());
+
+
+          //this->delinearization_lut.insert({remaining, this_cord});
+          
+          uint64_t inner = remaining % this->tile_size;
+          DT data = nnz.get_data();
+          auto & middle_slice = tiles[tile];
+          auto inner_slice = middle_slice.find(contraction_index);
+          if (inner_slice != middle_slice.end()) {
+            inner_slice->second.push_back({inner, data});
+          } else {
+            middle_slice[contraction_index] = {{inner, data}};
+          }
+        }
+
+
+    }
+
+  }
+
+  uint64_t get_size() {
+    uint64_t count = 0;
+    for (auto &tile : tiles) {
+      for (auto &middle : tile) {
+          count += middle.second.size();
+      }
+    }
+    return count;
+  }
+  uint64_t get_linear_index(uint64_t tile_index, uint64_t index_in_tile) {
+    return tile_index * tile_size + index_in_tile;
+  }
+  uint64_t num_tiles() { return tiles.size(); }
 };
 
 template <class DT> class TileIndexedTensor {

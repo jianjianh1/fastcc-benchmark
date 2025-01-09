@@ -630,6 +630,21 @@ public:
     return linearlized_cord;
   }
 
+  uint64_t get_linearized_max() const {
+    if (get_shape().size() == 0) {
+      std::cerr << "Need to set shape before hashing coordinate" << std::endl;
+      assert(false);
+    }
+    uint64_t linearlized_cord = 0;
+    for (int i = 0; i < this->get_dimensionality(); i++) {
+      linearlized_cord += max_indices[i]+1;
+      if (i != this->get_dimensionality() - 1) {
+        linearlized_cord *= (max_indices[i + 1] + 1);
+      }
+    }
+    return linearlized_cord;
+  }
+
   uint64_t gather_linearize(CoOrdinate const& positions){
     uint64_t linearlized_cord = 0;
     for (int i = 0; i < positions.get_dimensionality(); i++) {
