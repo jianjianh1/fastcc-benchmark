@@ -191,19 +191,24 @@ public:
         SmallIndexedTensor<Right>(other, right_contr);
     uint64_t flop_count = 0;
     uint64_t lower_bound = 0;
+    uint64_t upper_bound = 0;
     for (auto &left_slice : left_indexed.indexed_tensor) {
-      uint64_t row_nnz_estimate = 0;
+      uint64_t row_nnz_lb = 0;
+      uint64_t row_nnz_ub = 0;
       for (auto &left_pair : left_slice.second) {
         flop_count += right_indexed.row_size_of(left_pair.first);
-        row_nnz_estimate += right_indexed.row_size_of(left_pair.first);
+        row_nnz_lb += right_indexed.row_size_of(left_pair.first);
+        row_nnz_ub += right_indexed.row_size_of(left_pair.first);
       }
-      row_nnz_estimate = row_nnz_estimate / left_slice.second.size() +
-                         (row_nnz_estimate % left_slice.second.size() != 0);
-      lower_bound += row_nnz_estimate;
+      row_nnz_lb = row_nnz_lb / left_slice.second.size() +
+                         (row_nnz_lb % left_slice.second.size() != 0);
+      row_nnz_ub = std::min(row_nnz_ub, right_indexed.get_linearization_bound());
+      upper_bound += row_nnz_ub;
+      lower_bound += row_nnz_lb;
     }
     // lower bound is F/NNZ_l
     // upper bound is F
-    return {lower_bound, flop_count};
+    return {lower_bound, upper_bound};
   }
 
   template <class Right>
