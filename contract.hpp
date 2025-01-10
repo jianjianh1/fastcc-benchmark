@@ -177,6 +177,56 @@ public:
     return Tensor(output_coords.begin(), output_coords.end());
   }
 
+  template <class Right>
+  std::pair<uint64_t, uint64_t> bound_output_nnz_inner_outer(Tensor<Right> &other,
+                                                 CoOrdinate left_contr,
+                                                 CoOrdinate right_contr) {
+    // first compute number of FLOPs
+    std::vector<int> all_indices = std::vector<int>(this->get_dimensionality());
+    std::iota(all_indices.begin(), all_indices.end(), 0);
+    CoOrdinate left_external = CoOrdinate(all_indices).remove(left_contr);
+    SmallIndexedTensor<DT> left_indexed =
+        SmallIndexedTensor<DT>(*this, left_external);
+    SmallIndexedTensor<Right> right_indexed =
+        SmallIndexedTensor<Right>(other, right_contr);
+    uint64_t flop_count = 0;
+    uint64_t lower_bound = 0;
+    for (auto &left_slice : left_indexed.indexed_tensor) {
+      uint64_t row_nnz_estimate = 0;
+      for (auto &left_pair : left_slice.second) {
+        flop_count += right_indexed.row_size_of(left_pair.first);
+        row_nnz_estimate += right_indexed.row_size_of(left_pair.first);
+      }
+      row_nnz_estimate = row_nnz_estimate / left_slice.second.size() +
+                         (row_nnz_estimate % left_slice.second.size() != 0);
+      lower_bound += row_nnz_estimate;
+    }
+    // lower bound is F/NNZ_l
+    // upper bound is F
+    return {lower_bound, flop_count};
+  }
+
+  template <class Right>
+  std::pair<uint64_t, uint64_t> bound_output_nnz_outer_outer(Tensor<Right> &other,
+                                                 CoOrdinate left_contr,
+                                                 CoOrdinate right_contr) {
+    // first compute number of FLOPs
+    SmallIndexedTensor<DT> left_indexed =
+        SmallIndexedTensor<DT>(*this, left_contr);
+    SmallIndexedTensor<Right> right_indexed =
+        SmallIndexedTensor<Right>(other, right_contr);
+    uint64_t lower_bound = 0;
+    uint64_t upper_bound = 0;
+    for (auto &left_slice : left_indexed.indexed_tensor) {
+      auto &right_slice = right_indexed.indexed_tensor[left_slice.first];
+      uint64_t this_size = left_slice.second.size() * right_slice.size();
+      upper_bound += this_size;
+      if (lower_bound < this_size)
+        lower_bound = this_size;
+    }
+    return {lower_bound, upper_bound};
+  }
+
   // Needs shape for left and right tensors
   // full outer multiplication
   template <class RES, class RIGHT>
@@ -640,7 +690,6 @@ template <class RES, class RIGHT>
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to index: " << time_taken << std::endl;
-    std::cout<< " got "<<left_indexed.num_tiles()<<" tiles"<<std::endl;
     start = std::chrono::high_resolution_clock::now();
 
 
@@ -707,8 +756,8 @@ template <class RES, class RIGHT>
     //   //          << thread_local_accumulators[iter].percentage_saving()
     //   //          << "\% iterations saved" << std::endl;
     // }
-    std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
-              << std::endl;
+    //std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
+    //          << std::endl;
     return result_tensor;
   }
 

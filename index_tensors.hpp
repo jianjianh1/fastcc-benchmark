@@ -409,6 +409,13 @@ public:
 
   uint64_t get_size() { return indexed_tensor.size(); }
   uint64_t get_linearization_bound() { return max_inner_val; }
+  uint64_t row_size_of(uint64_t rowind) {
+    auto it = indexed_tensor.find(rowind);
+    if (it == indexed_tensor.end()) {
+      return 0;
+    }
+    return uint64_t(it->second.size());
+  }
 };
 
 //parallel build of TileIndexed tensor - uses array in backend.
@@ -714,6 +721,13 @@ public:
       exit(1);
     }
   }
+  uint64_t row_size_of(BoundedCoordinate& rowind) {
+    auto it = indexed_tensor.find(rowind);
+    if (it == indexed_tensor.end()) {
+      return 0;
+    }
+    return uint64_t(it->second.size());
+  }
 
   // This is not exactly an equality operator, it just checks if the other
   // tensor has every value that this tensor has. Use it with a flip on the two
@@ -891,7 +905,7 @@ public:
   TileAccumulatorMap(int left_tile_dim, int right_tile_dim)
       : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
     int tile_area = left_tile_dim * right_tile_dim;
-    accumulator = accmap(128);
+    accumulator = accmap(20000);
   }
   void reset_accumulator(int left_tile_index, int right_tile_index) {
     this->left_tile_index = left_tile_index;
