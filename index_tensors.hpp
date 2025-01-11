@@ -888,10 +888,11 @@ private:
   int right_tile_dim = 0;
   int left_tile_index = 0;
   int right_tile_index = 0;
+  int thread_id;
 
 public:
-  TileAccumulatorDense(int left_tile_dim, int right_tile_dim)
-      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
+  TileAccumulatorDense(int left_tile_dim, int right_tile_dim, int thread_id = 0)
+      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim), thread_id(thread_id) {
     int tile_area = left_tile_dim * right_tile_dim;
     this->data_accumulator = (DT *)calloc(tile_area, sizeof(DT));
   }
@@ -912,7 +913,7 @@ public:
         uint64_t left_index = this->left_tile_index * left_tile_dim + i;
         uint64_t right_index = this->right_tile_index * right_tile_dim + j;
         CompactCordinate res_cord = CompactCordinate(left_index, sample_left,
-                                                     right_index, sample_right);
+                                                     right_index, sample_right, thread_id);
         result_tensor.push_nnz(data_accumulator[i * right_tile_dim + j],
                                res_cord);
         data_accumulator[i * right_tile_dim + j] = DT();
@@ -928,10 +929,11 @@ private:
   accmap accumulator;
   int left_tile_dim = 0, right_tile_dim = 0;
   int left_tile_index = 0, right_tile_index = 0;
+  int thread_id;
 
 public:
-  TileAccumulatorMap(int left_tile_dim, int right_tile_dim)
-      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
+  TileAccumulatorMap(int left_tile_dim, int right_tile_dim, int thread_id = 0)
+      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim), thread_id(thread_id) {
     int tile_area = left_tile_dim * right_tile_dim;
     accumulator = accmap(2000);
   }
@@ -956,7 +958,7 @@ public:
       uint64_t left_index = this->left_tile_index * left_tile_dim + i;
       uint64_t right_index = this->right_tile_index * right_tile_dim + j;
       CompactCordinate this_cord =
-          CompactCordinate(left_index, sample_left, right_index, sample_right);
+          CompactCordinate(left_index, sample_left, right_index, sample_right, thread_id);
       result_tensor.push_nnz(p.second, this_cord);
     }
   }
@@ -974,10 +976,11 @@ private:
   int right_tile_dim = 0;
   int left_tile_index = 0;
   int right_tile_index = 0;
+  int thread_id;
 
 public:
-  TileAccumulator(int left_tile_dim, int right_tile_dim)
-      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
+  TileAccumulator(int left_tile_dim, int right_tile_dim, int thread_id = 0)
+      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim), thread_id(thread_id) {
     int tile_area = left_tile_dim * right_tile_dim;
     assert(((right_tile_dim & (right_tile_dim - 1)) == 0));
     //this->data_accumulator = (DT *)malloc(tile_area * sizeof(DT));
@@ -1016,7 +1019,7 @@ public:
       uint64_t right_index = this->right_tile_index * right_tile_dim + j;
           //right_indexed.get_linear_index(this->right_tile_index, j);
       
-      CompactCordinate this_cord = CompactCordinate(left_index, sample_left, right_index, sample_right);
+      CompactCordinate this_cord = CompactCordinate(left_index, sample_left, right_index, sample_right, thread_id);
       //this_cord.concat(sample_right.delinearize(right_index));
       result_tensor.push_nnz(data_accumulator[active_positions[iter]],
                              this_cord);

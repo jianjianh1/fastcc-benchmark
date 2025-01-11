@@ -1,6 +1,7 @@
 #ifndef TIMER_HPP
 #define TIMER_HPP
 #include <chrono>
+#include <thread>
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -45,4 +46,50 @@ public:
     }
   }
 };
+
+class ManagedHeap{
+    private:
+        void* ptr;
+        uint64_t size = 0;
+        uint64_t base = 0;
+    public:
+        ManagedHeap(uint64_t size){
+            std::cout<<"Allocating heap of size "<<size<<std::endl;
+            this->size = size;
+            this->ptr = calloc(size, 1);
+            if(this->ptr == NULL){
+                std::cerr << "Failed to allocate memory in the managed heap" << std::endl;
+                exit(1);
+            }
+            this->base = 0;
+        }
+        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<36){}
+        ManagedHeap(const ManagedHeap&) = delete;
+        ~ManagedHeap(){
+            free(ptr);
+        }
+        void* alloc(uint64_t requested_size){
+            if(requested_size + base > size){
+                std::cerr << "Requested size "<<requested_size<<" is larger than the heap size " <<size << std::endl;
+                std::cerr << "Base is " << base << std::endl;
+                exit(1);
+            }
+            base += requested_size;
+            return (void*)((char*)ptr + base);
+        }
+};
+
+static ManagedHeap* tlocal_heaps;
+
+static void init_heaps(int num_threads){
+    tlocal_heaps = new ManagedHeap[num_threads];
+}
+
+static void *my_calloc(uint64_t num_elts, uint64_t size_per_elt, int thread_id) {
+        return tlocal_heaps[thread_id].alloc(num_elts * size_per_elt);
+}
+static void *my_malloc(uint64_t size, int thread_id) {
+        return tlocal_heaps[thread_id].alloc(size);
+}
+
 #endif

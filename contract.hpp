@@ -401,7 +401,7 @@ public:
         if (accumulator[i * (right_inner_max + 1) + j] == DT())
           continue;
         CompactCordinate this_cord =
-            CompactCordinate(i, sample_left, j, sample_right);
+            CompactCordinate(i, sample_left, j, sample_right, 0);
         result_tensor.push_nnz(accumulator[i * (right_inner_max + 1) + j],
                                this_cord);
       }
@@ -790,9 +790,9 @@ template <class RES, class RIGHT>
               << std::endl;
     std::chrono::high_resolution_clock::time_point start, end;
     int num_workers = std::thread::hardware_concurrency() / 2;
+    init_heaps(num_workers);
     tf::Taskflow taskflow;
     tf::Executor executor(num_workers);
-    float thread_scale = sqrt(1.0 / num_workers);
     std::cout<<"Tile size is "<<tile_size<<std::endl;
     start = std::chrono::high_resolution_clock::now();
 
@@ -803,11 +803,11 @@ template <class RES, class RIGHT>
         TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    std::vector<TileAccumulatorMap<DT>> thread_local_accumulators;
+    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
 
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulatorMap<DT>(left_inner_max, right_inner_max));
+          TileAccumulatorDense<DT>(left_inner_max, right_inner_max, _iter));
     }
     ListTensor<RES> thread_local_results[num_workers];
     Timer first_thread_timer;
@@ -825,7 +825,7 @@ template <class RES, class RIGHT>
 
         taskflow.emplace([&]() mutable {
           int my_id = executor.this_worker_id();
-          TileAccumulatorMap<DT> &myacc =
+          TileAccumulatorDense<DT> &myacc =
               thread_local_accumulators[executor.this_worker_id()];
           myacc.reset_accumulator(left_tile.first, right_tile.first);
           if (my_id == 0) {

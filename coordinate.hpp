@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <boost/container_hash/hash.hpp>
+#include "timer.hpp"
 
 #include <cstring>
 #include <iostream>
@@ -367,11 +368,11 @@ public:
     }
   }
   CompactCordinate(uint64_t leftint, BoundedCoordinateP2 const &left_sample,
-                   uint64_t rightint, BoundedCoordinateP2 const &right_sample) {
+                   uint64_t rightint, BoundedCoordinateP2 const &right_sample, int thread_id) {
     int dimensionality =
         left_sample.get_dimensionality() + right_sample.get_dimensionality();
     this->dimensionality = dimensionality;
-    coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
+    coords = (uint32_t *)my_calloc(dimensionality, sizeof(uint32_t), thread_id);
     uint64_t linearized = leftint;
     if (linearized > 0) {
       for (int iter = left_sample.get_dimensionality() - 1; iter >= 0; iter--) {
@@ -399,11 +400,11 @@ public:
     }
   }
   CompactCordinate(uint64_t leftint, BoundedCoordinate const &left_sample,
-                   uint64_t rightint, BoundedCoordinate const &right_sample) {
+                   uint64_t rightint, BoundedCoordinate const &right_sample, int thread_id) {
     int dimensionality =
         left_sample.get_dimensionality() + right_sample.get_dimensionality();
     this->dimensionality = dimensionality;
-    coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
+    coords = (uint32_t *)my_calloc(dimensionality, sizeof(uint32_t), thread_id);
     uint64_t linearized = leftint;
     if (linearized > 0) {
       for (int iter = left_sample.get_dimensionality() - 1; iter >= 0; iter--) {
