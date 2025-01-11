@@ -3,6 +3,7 @@
 #include <tsl/hopscotch_set.h>
 #include <emhash/hash_table8.hpp>
 #include "coordinate.hpp"
+#include "timer.hpp"
 #include <forward_list>
 #include <list>
 #include <random>
@@ -64,29 +65,62 @@ public:
     return count;
   }
 };
-template <class DT> class ListTensor {
-  std::list<CompactNNZ<DT>> nonzeros;
-  uint64_t iter = 0;
-  int dimensionality = 42;
+template <class DT> class NNZNode {
+private:
+  CompactNNZ<DT> nnz;
+  NNZNode<DT> *next = nullptr;
 
 public:
-  ListTensor(int dimensionality = 0) { this->dimensionality = dimensionality; }
+  NNZNode(DT data, CompactCordinate cord) : nnz(data, cord), next(nullptr) {}
+  NNZNode<DT> *get_next() { return next; }
+  void set_next(NNZNode<DT> *next) { this->next = next; }
+};
+
+template <class DT> class ListTensor {
+  NNZNode<DT>* head = nullptr;
+  NNZNode<DT>* tail = nullptr;
+  int dimensionality = 0;
+  int thread_id = 0;
+  uint64_t count = 0;
+
+public:
+  ListTensor(int dimensionality = 0, int thread_id=0):dimensionality(dimensionality), thread_id(thread_id) {}
 
   void push_nnz(DT data, CompactCordinate cord) {
-    iter++;
-    nonzeros.push_front(CompactNNZ<DT>(data, cord));
+    NNZNode<DT>* new_node = (NNZNode<DT>*)my_malloc(sizeof(NNZNode<DT>), thread_id);
+    *new_node = NNZNode<DT>(data, cord);
+    count++;
+    if(head == tail && head == nullptr){
+        head = new_node;
+        tail = new_node;
+    } else if(head == tail){
+        head->set_next(new_node);
+        tail = new_node;
+    } else {
+        tail->set_next(new_node);
+        tail = new_node;
+    }
   }
-  int get_nnz_count() { return iter; }
   int compute_nnz_count(){
-      int local_iter = 0;
-      for(auto &node: nonzeros){
-          local_iter++;
+      return count;
+  }
+  int run_through_nnz(){
+      int count = 0;
+      for(NNZNode<DT>* current = head; current != nullptr; current = current->get_next()){
+          count++;
       }
-      return local_iter;
+      return count;
   }
   void concatenate(ListTensor& other){
-      // TODO check if this is linear time, could very well be.
-      nonzeros.splice(nonzeros.begin(), other.nonzeros);
+      if(this->tail == nullptr){
+          this->head = other.head;
+          this->tail = other.tail;
+          this->count += other.count;
+          return;
+      }
+      this->tail->set_next(other.head);
+      this->tail = other.tail;
+      count += other.count;
   }
 };
 
@@ -491,7 +525,7 @@ public:
 
     //printf("Chunk size is %lu\n", chunk_size);
 
-    #pragma omp parallel for
+    #pragma omp parallel for num_threads(num_workers)
     for (int i = 0; i < num_workers; i++){
 
 

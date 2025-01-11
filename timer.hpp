@@ -54,7 +54,6 @@ class ManagedHeap{
         uint64_t base = 0;
     public:
         ManagedHeap(uint64_t size){
-            std::cout<<"Allocating heap of size "<<size<<std::endl;
             this->size = size;
             this->ptr = calloc(size, 1);
             if(this->ptr == NULL){
@@ -74,8 +73,9 @@ class ManagedHeap{
                 std::cerr << "Base is " << base << std::endl;
                 exit(1);
             }
+            void* ret = (void*)((char*)ptr + base);
             base += requested_size;
-            return (void*)((char*)ptr + base);
+            return ret;
         }
 };
 

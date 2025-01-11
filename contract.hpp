@@ -677,16 +677,16 @@ template <class RES, class RIGHT>
     uint64_t left_inner_max = left_indexed.tile_size;
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    std::vector<TileAccumulatorMap<DT>> thread_local_accumulators;
+    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
 
+    ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulatorMap<DT>(left_inner_max, right_inner_max));
+          TileAccumulatorDense<DT>(left_inner_max, right_inner_max, _iter));
+      thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
 
 
-
-    ListTensor<RES> thread_local_results[num_workers];
     Timer thread_local_timer;
     //end = std::chrono::high_resolution_clock::now();
 
@@ -706,7 +706,7 @@ template <class RES, class RIGHT>
 
         taskflow.emplace([&]() mutable {
           Timer &mytimer = thread_local_timer;
-          TileAccumulatorMap<DT> &myacc =
+          TileAccumulatorDense<DT> &myacc =
               thread_local_accumulators[executor.this_worker_id()];
           myacc.reset_accumulator(i, j);
           if (executor.this_worker_id() == 0) {
@@ -749,11 +749,9 @@ template <class RES, class RIGHT>
     std::cout << "Time taken to contract: " << time_taken << std::endl;
 
     start = std::chrono::high_resolution_clock::now();
-    ListTensor<RES> result_tensor = thread_local_results[0];
-    int iter = 0;
-    for(auto &local_res: thread_local_results){
-        if(iter++ == 0) continue;
-        result_tensor.concatenate(local_res);
+    ListTensor<RES>& result_tensor = thread_local_results[0];
+    for (int iter = 1; iter < num_workers; iter++) {
+      result_tensor.concatenate(thread_local_results[iter]);
     }
     end = std::chrono::high_resolution_clock::now();
     time_taken =
@@ -805,11 +803,12 @@ template <class RES, class RIGHT>
 
     std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
 
+    ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
           TileAccumulatorDense<DT>(left_inner_max, right_inner_max, _iter));
+      thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
-    ListTensor<RES> thread_local_results[num_workers];
     Timer first_thread_timer;
     end = std::chrono::high_resolution_clock::now();
 
@@ -826,7 +825,7 @@ template <class RES, class RIGHT>
         taskflow.emplace([&]() mutable {
           int my_id = executor.this_worker_id();
           TileAccumulatorDense<DT> &myacc =
-              thread_local_accumulators[executor.this_worker_id()];
+              thread_local_accumulators[my_id];
           myacc.reset_accumulator(left_tile.first, right_tile.first);
           if (my_id == 0) {
             first_thread_timer.start_timer("filling_tile");
@@ -852,7 +851,7 @@ template <class RES, class RIGHT>
             first_thread_timer.start_timer("draining_tile");
           }
           // drain here.
-          myacc.drain_into(thread_local_results[executor.this_worker_id()],
+          myacc.drain_into(thread_local_results[my_id],
                            sample_left, sample_right);
           if (my_id == 0) {
             first_thread_timer.end_timer("draining_tile");
@@ -868,12 +867,9 @@ template <class RES, class RIGHT>
     std::cout << "Time taken to contract: " << time_taken << std::endl;
 
     start = std::chrono::high_resolution_clock::now();
-    ListTensor<RES> result_tensor = thread_local_results[0];
-    int iter = 0;
-    for (auto &local_res : thread_local_results) {
-      if (iter++ == 0)
-        continue;
-      result_tensor.concatenate(local_res);
+    ListTensor<RES>& result_tensor = thread_local_results[0];
+    for (int iter = 1; iter < num_workers; iter++) {
+      result_tensor.concatenate(thread_local_results[iter]);
     }
     end = std::chrono::high_resolution_clock::now();
     time_taken =
@@ -1037,7 +1033,7 @@ template <class RES, class RIGHT>
         TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    TileAccumulatorDense<RES> tile_accumulator(left_inner_max, right_inner_max);
+    TileAccumulatorMap<RES> tile_accumulator(left_inner_max, right_inner_max);
     end = std::chrono::high_resolution_clock::now();
     double time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
