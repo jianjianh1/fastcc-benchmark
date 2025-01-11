@@ -778,14 +778,14 @@ template <class RES, class RIGHT>
     int result_dimensionality =
         this->get_dimensionality() + other.get_dimensionality() -
         (left_contr.get_dimensionality() + right_contr.get_dimensionality());
-    BoundedCoordinate sample_left = this->nonzeros[0]
+    BoundedCoordinateP2 sample_left = this->nonzeros[0]
                                         .get_coords()
                                         .remove(left_contr)
-                                        .get_bounded(this->get_shape_ref());
-    BoundedCoordinate sample_right = other.nonzeros[0]
+                                        .get_bounded_p2(this->get_shape_ref());
+    BoundedCoordinateP2 sample_right = other.nonzeros[0]
                                          .get_coords()
                                          .remove(right_contr)
-                                         .get_bounded(other.get_shape_ref());
+                                         .get_bounded_p2(other.get_shape_ref());
     std::cout << "Result dimensionality: " << result_dimensionality
               << std::endl;
     std::chrono::high_resolution_clock::time_point start, end;

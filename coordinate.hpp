@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <boost/container_hash/hash.hpp>
+
 #include <cstring>
 #include <iostream>
 #include <variant>
@@ -49,6 +50,44 @@ public:
   bool has_position(int position) {
     return std::find(positions, positions + dimensions, position) !=
            positions + dimensions;
+  }
+};
+
+class BoundedCoordinateP2 {
+  uint8_t dimensions = 0;
+  uint32_t coords[DIMENSIONALITY];
+  uint32_t bounds_np2[DIMENSIONALITY];
+  uint8_t log2_bounds[DIMENSIONALITY];
+
+public:
+  BoundedCoordinateP2(int *coords, int *bounds, int dimensions) {
+    for (int i = 0; i < dimensions; i++) {
+      this->coords[i] = coords[i];
+      if ((bounds[i] & (bounds[i] - 1)) == 0) {
+        this->bounds_np2[i] = bounds[i];
+      } else {
+          uint32_t bound = bounds[i];
+        bound--;
+        bound |= bound >> 1;
+        bound |= bound >> 2;
+        bound |= bound >> 4;
+        bound |= bound >> 8;
+        bound |= bound >> 16;
+        bound++;
+        this->bounds_np2[i] = bound;
+      }
+      this->log2_bounds[i] = int(log2(this->bounds_np2[i]));
+    }
+    this->dimensions = dimensions;
+  }
+  int get_dimensionality() const { return dimensions; }
+  uint32_t get_bound(int position) const {
+    assert(position < dimensions);
+    return bounds_np2[position];
+  }
+  uint32_t get_log2bound(int position) const {
+    assert(position < dimensions);
+    return log2_bounds[position];
   }
 };
 
@@ -327,6 +366,38 @@ public:
           (linearized - coords[iter]) / (sample_cord.get_bound(iter) + 1);
     }
   }
+  CompactCordinate(uint64_t leftint, BoundedCoordinateP2 const &left_sample,
+                   uint64_t rightint, BoundedCoordinateP2 const &right_sample) {
+    int dimensionality =
+        left_sample.get_dimensionality() + right_sample.get_dimensionality();
+    this->dimensionality = dimensionality;
+    coords = (uint32_t *)calloc(dimensionality, sizeof(uint32_t));
+    uint64_t linearized = leftint;
+    if (linearized > 0) {
+      for (int iter = left_sample.get_dimensionality() - 1; iter >= 0; iter--) {
+        // coords[iter] = linearized % (left_sample.get_bound(iter) + 1);
+        coords[iter] = linearized & (left_sample.get_bound(iter) - 1);
+        linearized =
+            (linearized - coords[iter]) >> left_sample.get_log2bound(iter);
+      }
+    }
+    linearized = rightint;
+    if (linearized > 0) {
+      for (int iter = right_sample.get_dimensionality() - 1; iter >= 0;
+           iter--) {
+        // coords[iter + left_sample.get_dimensionality()] =
+        //     linearized % (right_sample.get_bound(iter) + 1);
+        coords[iter + left_sample.get_dimensionality()] =
+            linearized & (right_sample.get_bound(iter) - 1);
+        // linearized =
+        //     (linearized - coords[iter + left_sample.get_dimensionality()]) /
+        //     (right_sample.get_bound(iter) + 1);
+        linearized =
+            (linearized - coords[iter + left_sample.get_dimensionality()]) >>
+            right_sample.get_log2bound(iter);
+      }
+    }
+  }
   CompactCordinate(uint64_t leftint, BoundedCoordinate const &left_sample,
                    uint64_t rightint, BoundedCoordinate const &right_sample) {
     int dimensionality =
@@ -471,6 +542,9 @@ public:
   void write(std::string filename) const;
   BoundedCoordinate get_bounded(int *bounds) const {
     return BoundedCoordinate((int *)coords.data(), bounds, coords.size());
+  }
+  BoundedCoordinateP2 get_bounded_p2(int *bounds) const {
+    return BoundedCoordinateP2((int *)coords.data(), bounds, coords.size());
   }
 
   // This is going to concatenate two coordinates
@@ -655,6 +729,39 @@ public:
     }
     //assert(linearlized_cord  == this->gather(positions).linearize()); //TODO remove before flight
     return linearlized_cord;
+  }
+  // this is to linearize using a given shape which has to be a power of two.
+  // pass in the logs of the shape, so that they have to be computed only once.
+  // shape here is full shape
+  uint64_t gather_linearize_exp2(CoOrdinate const& positions, std::vector<int> const& some_shape){
+    uint64_t linearlized_cord = 0;
+    for (int i = 0; i < positions.get_dimensionality(); i++) {
+      linearlized_cord += coords[positions.get_index(i)];
+      if (i != positions.get_dimensionality() - 1) {
+        //linearlized_cord *= (some_shape[positions.get_index(i + 1)] + 1);
+        linearlized_cord = linearlized_cord << some_shape[positions.get_index(i + 1)]; //TODO +1 might have to be propagated up.
+      }
+    }
+    //assert(linearlized_cord  == this->gather(positions).linearize()); //TODO remove before flight
+    return linearlized_cord;
+  }
+  // pass in the log base 2 of the next power of two of the shape.
+  // shape here is removed shape
+  uint64_t remove_linearize_exp2(CoOrdinate const& positions, std::vector<int> const& max_indices_after_remove){
+    uint64_t linearlized_cord = 0;
+    int iter = 1;
+    for (int i = 0; i < this->get_dimensionality(); i++) {
+      if (std::find(positions.begin(), positions.end(), i) == positions.end()) {
+        linearlized_cord += coords[i];
+        if (iter != max_indices_after_remove.size()) {
+          //linearlized_cord *= (max_indices_after_remove[iter++] + 1);
+          linearlized_cord = linearlized_cord << max_indices_after_remove[iter++];
+        }
+      }
+    }
+    //assert(linearlized_cord  == this->remove(positions).linearize()); //TODO remove before flight
+    return linearlized_cord;
+
   }
   uint64_t remove_linearize(CoOrdinate const& positions, std::vector<int> const& max_indices_after_remove){
     uint64_t linearlized_cord = 0;

@@ -531,6 +531,23 @@ public:
   }
   uint64_t num_tiles() { return tiles.size(); }
 };
+void make_next_power_of_two(std::vector<int> &shape) {
+  for (int i = 0; i < shape.size(); i++) {
+    if ((shape[i] & shape[i] - 1) != 0) {
+      // copied from stack overflow post
+      // https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2
+      shape[i]--;
+      shape[i] |= shape[i] >> 1;
+      shape[i] |= shape[i] >> 2;
+      shape[i] |= shape[i] >> 4;
+      shape[i] |= shape[i] >> 8;
+      shape[i] |= shape[i] >> 16;
+      shape[i]++;
+    }
+    shape[i] = int(log2(shape[i]));
+  }
+  return;
+}
 
 template <class DT> class TileIndexedTensor {
   // using hashmap_vals =
@@ -556,14 +573,17 @@ public:
                     int tile_size)
       : tile_size(tile_size) {
     // Tile the dense space 0 to max_inner_val.
-    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
+          std::vector<int> removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
+          make_next_power_of_two(removed_shape);
+          std::vector<int> index_shape = base_tensor.get_nonzeros()[0].get_coords().get_shape();
+          make_next_power_of_two(index_shape);
     if(this->tile_size == 0) {
         this->tile_size = 1;
     }
     for (auto &nnz : base_tensor) {
       uint64_t contraction_index =
-          nnz.get_coords().gather_linearize(index_coords);//nnz.get_coords().gather(index_coords).linearize();
-      uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
+          nnz.get_coords().gather_linearize_exp2(index_coords, index_shape);//nnz.get_coords().gather(index_coords).linearize();
+      uint64_t remaining = nnz.get_coords().remove_linearize_exp2(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
       CompactCordinate this_cord(nnz.get_coords());
       //this->delinearization_lut.insert({remaining, this_cord});
       uint64_t tile = remaining / this->tile_size;
@@ -588,15 +608,18 @@ public:
 
   TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords, float scaling_factor = 1.0) {
     // Tile the dense space 0 to max_inner_val.
-    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
+std::vector<int> removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
+          make_next_power_of_two(removed_shape);
+          std::vector<int> index_shape = base_tensor.get_nonzeros()[0].get_coords().get_shape();
+          make_next_power_of_two(index_shape);
     uint64_t max_inner_val = 0;
     std::vector<uint64_t> contraction_cords(base_tensor.get_size());
     std::vector<uint64_t> external_cords(base_tensor.get_size());
     int iter = 0;
     auto start = std::chrono::high_resolution_clock::now();
     for (auto &nnz : base_tensor) {
-      uint64_t index = nnz.get_coords().gather_linearize(index_coords);
-      uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape);
+      uint64_t index = nnz.get_coords().gather_linearize_exp2(index_coords, index_shape);
+      uint64_t remaining = nnz.get_coords().remove_linearize_exp2(index_coords, removed_shape);
       CompactCordinate this_cord(nnz.get_coords());
       //this->delinearization_lut.insert({remaining, this_cord});
       if (remaining >= max_inner_val) {
@@ -874,9 +897,9 @@ public:
   void update(uint64_t pos, DT val) {
     this->data_accumulator[pos] += val;
   }
-  template <class TensorType>
-  void drain_into(TensorType &result_tensor, BoundedCoordinate &sample_left,
-                  BoundedCoordinate &sample_right) {
+  template <class TensorType, class BCType>
+  void drain_into(TensorType &result_tensor, BCType &sample_left,
+                  BCType &sample_right) {
     for (int i = 0; i < left_tile_dim; i++) {
       for (int j = 0; j < right_tile_dim; j++) {
         if (data_accumulator[i * right_tile_dim + j] == DT())
@@ -919,9 +942,9 @@ public:
     else
       this->accumulator[pos] = val;
   }
-  template <class TensorType>
-  void drain_into(TensorType &result_tensor, BoundedCoordinate &sample_left,
-                  BoundedCoordinate &sample_right) {
+  template <class TensorType, class BCType>
+  void drain_into(TensorType &result_tensor, BCType &sample_left,
+                  BCType &sample_right) {
     for (auto &p : accumulator) {
       int i = p.first / right_tile_dim;
       int j = p.first % right_tile_dim;
@@ -977,9 +1000,9 @@ public:
     }
     this->data_accumulator[pos] += val;
   }
-  template <class TensorType>
-  void drain_into(TensorType &result_tensor, BoundedCoordinate& sample_left,
-             BoundedCoordinate& sample_right) {
+  template <class TensorType, class BCType>
+  void drain_into(TensorType &result_tensor, BCType& sample_left,
+             BCType& sample_right) {
     for (int iter = 0; iter < pos_iter; iter++) {
       int i = active_positions[iter] >> int(log(right_tile_dim));
       int j = active_positions[iter] & (right_tile_dim - 1);
