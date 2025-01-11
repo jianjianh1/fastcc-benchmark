@@ -418,6 +418,24 @@ public:
   }
 };
 
+void make_next_power_of_two(std::vector<int> &shape) {
+  for (int i = 0; i < shape.size(); i++) {
+    if ((shape[i] & shape[i] - 1) != 0) {
+      // copied from stack overflow post
+      // https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2
+      shape[i]--;
+      shape[i] |= shape[i] >> 1;
+      shape[i] |= shape[i] >> 2;
+      shape[i] |= shape[i] >> 4;
+      shape[i] |= shape[i] >> 8;
+      shape[i] |= shape[i] >> 16;
+      shape[i]++;
+    }
+    shape[i] = int(log2(shape[i]));
+  }
+  return;
+}
+
 //parallel build of TileIndexed tensor - uses array in backend.
 template <class DT> class ParallelTileIndexedTensor {
   // using hashmap_vals =
@@ -447,6 +465,9 @@ public:
   ParallelTileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords, int tile_size = 0): tile_size(tile_size) {
 
     auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
+    make_next_power_of_two(removed_shape);
+    auto index_shape = base_tensor.get_nonzeros()[0].get_coords().get_shape();
+    make_next_power_of_two(index_shape);
     if(this->tile_size == 0) {
         this->tile_size = 1;
     }
@@ -490,8 +511,8 @@ public:
 
         for (auto &nnz : base_tensor) {
           uint64_t contraction_index =
-              nnz.get_coords().gather_linearize(index_coords);//nnz.get_coords().gather(index_coords).linearize();
-          uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
+              nnz.get_coords().gather_linearize_exp2(index_coords, index_shape);//nnz.get_coords().gather(index_coords).linearize();
+          uint64_t remaining = nnz.get_coords().remove_linearize_exp2(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
           
           uint64_t tile = remaining / this->tile_size;
           if (tile < min_bound || tile >= max_bound) continue;
@@ -531,23 +552,7 @@ public:
   }
   uint64_t num_tiles() { return tiles.size(); }
 };
-void make_next_power_of_two(std::vector<int> &shape) {
-  for (int i = 0; i < shape.size(); i++) {
-    if ((shape[i] & shape[i] - 1) != 0) {
-      // copied from stack overflow post
-      // https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2
-      shape[i]--;
-      shape[i] |= shape[i] >> 1;
-      shape[i] |= shape[i] >> 2;
-      shape[i] |= shape[i] >> 4;
-      shape[i] |= shape[i] >> 8;
-      shape[i] |= shape[i] >> 16;
-      shape[i]++;
-    }
-    shape[i] = int(log2(shape[i]));
-  }
-  return;
-}
+
 
 template <class DT> class TileIndexedTensor {
   // using hashmap_vals =
@@ -928,7 +933,7 @@ public:
   TileAccumulatorMap(int left_tile_dim, int right_tile_dim)
       : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim) {
     int tile_area = left_tile_dim * right_tile_dim;
-    accumulator = accmap(20000);
+    accumulator = accmap(2000);
   }
   void reset_accumulator(int left_tile_index, int right_tile_index) {
     this->left_tile_index = left_tile_index;
