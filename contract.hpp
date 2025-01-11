@@ -671,8 +671,8 @@ template <class RES, class RIGHT>
     ParallelTileIndexedTensor<DT> left_indexed = left_future.get();
     ParallelTileIndexedTensor<DT> right_indexed = right_future.get();
 
+    std::cout<<"Tile size is "<<tile_size<<std::endl;
 
-    std::cout << "Sizes: " << left_indexed.get_size() << " " << right_indexed.get_size() << std::endl;
 
     uint64_t left_inner_max = left_indexed.tile_size;
     uint64_t right_inner_max = right_indexed.tile_size;
