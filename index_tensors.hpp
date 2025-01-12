@@ -969,7 +969,7 @@ public:
   TileAccumulatorMap(int left_tile_dim, int right_tile_dim, int thread_id = 0)
       : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim), thread_id(thread_id) {
     int tile_area = left_tile_dim * right_tile_dim;
-    accumulator = accmap(2000);
+    accumulator = accmap(64);
   }
   void reset_accumulator(int left_tile_index, int right_tile_index) {
     this->left_tile_index = left_tile_index;
@@ -1018,11 +1018,11 @@ public:
     int tile_area = left_tile_dim * right_tile_dim;
     assert(((right_tile_dim & (right_tile_dim - 1)) == 0));
     //this->data_accumulator = (DT *)malloc(tile_area * sizeof(DT));
-    this->data_accumulator = (DT *)calloc(tile_area, sizeof(DT));
+    this->data_accumulator = (DT *)my_calloc(tile_area, sizeof(DT), thread_id);
     //this->bitmask = (uint8_t *)malloc((tile_area / 8) + 1);
-    this->bitmask = (uint8_t *)calloc((tile_area / 8 + 1), 1);
+    this->bitmask = (uint8_t *)my_calloc((tile_area / 8 + 1), 1, thread_id);
     //this->active_positions = (uint64_t *)malloc(tile_area * sizeof(uint64_t));
-    this->active_positions = (uint64_t *)calloc(tile_area, sizeof(uint64_t));
+    this->active_positions = (uint64_t *)my_calloc(tile_area, sizeof(uint64_t), thread_id);
   }
   void reset_accumulator(int left_tile_index, int right_tile_index) {
     this->left_tile_index = left_tile_index;

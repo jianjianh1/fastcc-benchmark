@@ -1064,7 +1064,7 @@ template <class RES, class RIGHT>
         }
         // drain here.
         mytimer.start_timer("drain");
-        tile_accumulator.drain_into(result_tensor, left_indexed, right_indexed);
+        tile_accumulator.drain_into(result_tensor, sample_left, sample_right);
         mytimer.end_timer("drain");
       }
     }
@@ -1082,7 +1082,7 @@ template <class RES, class RIGHT>
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to writeback: " << time_taken << std::endl;
-    std::cout << "Got " << result_tensor.get_nnz_count() << " nonzeros"
+    std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
               << std::endl;
     return result_tensor;
   }
