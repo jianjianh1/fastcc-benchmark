@@ -642,14 +642,14 @@ template <class RES, class RIGHT>
     int result_dimensionality =
         this->get_dimensionality() + other.get_dimensionality() -
         (left_contr.get_dimensionality() + right_contr.get_dimensionality());
-    BoundedCoordinateP2 sample_left = this->nonzeros[0]
+    BoundedCoordinate sample_left = this->nonzeros[0]
                                         .get_coords()
                                         .remove(left_contr)
-                                        .get_bounded_p2(this->get_shape_ref());
-    BoundedCoordinateP2 sample_right = other.nonzeros[0]
+                                        .get_bounded(this->get_shape_ref());
+    BoundedCoordinate sample_right = other.nonzeros[0]
                                          .get_coords()
                                          .remove(right_contr)
-                                         .get_bounded_p2(other.get_shape_ref());
+                                         .get_bounded(other.get_shape_ref());
     std::cout << "Result dimensionality: " << result_dimensionality
               << std::endl;
     std::chrono::high_resolution_clock::time_point start, end;
@@ -794,19 +794,29 @@ template <class RES, class RIGHT>
     std::cout<<"Tile size is "<<tile_size<<std::endl;
     start = std::chrono::high_resolution_clock::now();
 
-    TileIndexedTensor<DT> left_indexed =
-        TileIndexedTensor<DT>(*this, left_contr, tile_size);
+    auto left_future = std::async(std::launch::async, [&](){
+        return TileIndexedTensor<RIGHT>(*this, left_contr, tile_size);
+    });
+
+    auto right_future = std::async(std::launch::async, [&](){
+        return TileIndexedTensor<RIGHT>(other, right_contr, tile_size);
+    });
+
+    TileIndexedTensor<DT> left_indexed = left_future.get();
+    TileIndexedTensor<DT> right_indexed = right_future.get();
+    //TileIndexedTensor<DT> left_indexed =
+    //    TileIndexedTensor<DT>(*this, left_contr, tile_size);
     uint64_t left_inner_max = left_indexed.tile_size;
-    TileIndexedTensor<RIGHT> right_indexed =
-        TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
+    //TileIndexedTensor<RIGHT> right_indexed =
+    //    TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
+    std::vector<TileAccumulatorMap<DT>> thread_local_accumulators;
 
     ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulatorDense<DT>(left_inner_max, right_inner_max, _iter));
+          TileAccumulatorMap<DT>(left_inner_max, right_inner_max, _iter));
       thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
     Timer first_thread_timer;
@@ -824,7 +834,7 @@ template <class RES, class RIGHT>
 
         taskflow.emplace([&]() mutable {
           int my_id = executor.this_worker_id();
-          TileAccumulatorDense<DT> &myacc =
+          TileAccumulatorMap<DT> &myacc =
               thread_local_accumulators[my_id];
           myacc.reset_accumulator(left_tile.first, right_tile.first);
           if (my_id == 0) {
@@ -837,7 +847,7 @@ template <class RES, class RIGHT>
                    left_entry.second) { // loop over (e_l, nnz_l): external
                                         // left, nnz at that external left.
                 for (auto &right_ev : right_entry->second) {
-                  int co_ordinate =
+                  uint64_t co_ordinate =
                       left_ev.first * right_inner_max + right_ev.first;
                   myacc.update(co_ordinate, left_ev.second * right_ev.second);
                 }

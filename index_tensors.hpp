@@ -498,14 +498,11 @@ public:
 
   ParallelTileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords, int tile_size = 0): tile_size(tile_size) {
 
-    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
-    make_next_power_of_two(removed_shape);
-    auto index_shape = base_tensor.get_nonzeros()[0].get_coords().get_shape();
-    make_next_power_of_two(index_shape);
     if(this->tile_size == 0) {
         this->tile_size = 1;
     }
 
+    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
     uint64_t max_possible = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_linearized_max();
 
     uint64_t n_tiles = (max_possible-1)/tile_size+1;
@@ -545,8 +542,8 @@ public:
 
         for (auto &nnz : base_tensor) {
           uint64_t contraction_index =
-              nnz.get_coords().gather_linearize_exp2(index_coords, index_shape);//nnz.get_coords().gather(index_coords).linearize();
-          uint64_t remaining = nnz.get_coords().remove_linearize_exp2(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
+              nnz.get_coords().gather_linearize(index_coords);//nnz.get_coords().gather(index_coords).linearize();
+          uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
           
           uint64_t tile = remaining / this->tile_size;
           if (tile < min_bound || tile >= max_bound) continue;
@@ -961,15 +958,15 @@ template <class DT> class TileAccumulatorMap {
 
 private:
   accmap accumulator;
-  int left_tile_dim = 0, right_tile_dim = 0;
-  int left_tile_index = 0, right_tile_index = 0;
+  uint64_t left_tile_dim = 0, right_tile_dim = 0;
+  uint64_t left_tile_index = 0, right_tile_index = 0;
   int thread_id;
 
 public:
   TileAccumulatorMap(int left_tile_dim, int right_tile_dim, int thread_id = 0)
       : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim), thread_id(thread_id) {
-    int tile_area = left_tile_dim * right_tile_dim;
-    accumulator = accmap(64);
+    uint64_t tile_area = left_tile_dim * right_tile_dim;
+    accumulator = accmap(20000);
   }
   void reset_accumulator(int left_tile_index, int right_tile_index) {
     this->left_tile_index = left_tile_index;
@@ -987,8 +984,8 @@ public:
   void drain_into(TensorType &result_tensor, BCType &sample_left,
                   BCType &sample_right) {
     for (auto &p : accumulator) {
-      int i = p.first / right_tile_dim;
-      int j = p.first % right_tile_dim;
+      uint64_t i = p.first / right_tile_dim;
+      uint64_t j = p.first % right_tile_dim;
       uint64_t left_index = this->left_tile_index * left_tile_dim + i;
       uint64_t right_index = this->right_tile_index * right_tile_dim + j;
       CompactCordinate this_cord =
