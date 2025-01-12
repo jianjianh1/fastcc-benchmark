@@ -811,12 +811,12 @@ template <class RES, class RIGHT>
     //    TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
 
-    std::vector<TileAccumulatorMap<DT>> thread_local_accumulators;
+    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
 
     ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulatorMap<DT>(left_inner_max, right_inner_max, _iter));
+          TileAccumulatorDense<DT>(left_inner_max, right_inner_max, _iter));
       thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
     Timer first_thread_timer;
@@ -834,7 +834,7 @@ template <class RES, class RIGHT>
 
         taskflow.emplace([&]() mutable {
           int my_id = executor.this_worker_id();
-          TileAccumulatorMap<DT> &myacc =
+          TileAccumulatorDense<DT> &myacc =
               thread_local_accumulators[my_id];
           myacc.reset_accumulator(left_tile.first, right_tile.first);
           if (my_id == 0) {
