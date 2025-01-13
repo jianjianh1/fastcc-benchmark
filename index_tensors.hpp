@@ -605,6 +605,8 @@ public:
   using value_type = typename tile_map::value_type;
   iterator begin() { return indexed_tensor.begin(); }
   iterator end() { return indexed_tensor.end(); }
+  ~TileIndexedTensor() { }//make it leak, for now.
+  TileIndexedTensor(){}
   TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords,
                     int tile_size)
       : tile_size(tile_size) {
@@ -620,18 +622,16 @@ public:
       uint64_t contraction_index =
           nnz.get_coords().gather_linearize_exp2(index_coords, index_shape);//nnz.get_coords().gather(index_coords).linearize();
       uint64_t remaining = nnz.get_coords().remove_linearize_exp2(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
-      CompactCordinate this_cord(nnz.get_coords());
-      //this->delinearization_lut.insert({remaining, this_cord});
       uint64_t tile = remaining / this->tile_size;
       uint64_t inner = remaining % this->tile_size;
       DT data = nnz.get_data();
       auto middle_slice = indexed_tensor.find(tile);
       if (middle_slice != indexed_tensor.end()) {
-        auto inner_slice = middle_slice->second.find(contraction_index);
+        auto inner_slice = middle_slice->second.find(contraction_index); //bottleneck 0 half the time here.
         if (inner_slice != middle_slice->second.end()) {
           inner_slice->second.push_back({inner, data});
         } else {
-          middle_slice->second[contraction_index] = {{inner, data}};
+          middle_slice->second[contraction_index] = {{inner, data}}; //bottleneck 1
         }
       } else {
         inner_list new_inner_list({{inner, data}});

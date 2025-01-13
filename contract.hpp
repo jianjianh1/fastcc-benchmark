@@ -8,6 +8,7 @@
 #include "index_tensors.hpp"
 #include <algorithm>
 #include <ankerl/unordered_dense.h>
+#include <omp.h>
 #include <atomic>
 #include <boost/functional/hash.hpp>
 #include <chrono>
@@ -763,6 +764,91 @@ template <class RES, class RIGHT>
               << std::endl;
     return result_tensor;
   }
+    
+template <class RES, class RIGHT>
+  ListTensor<RES>
+  fastcc_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                                 CoOrdinate right_contr, int tile_size = 100) {
+    // for l_T
+    //   for r_T
+    //      for c
+    //         for T_r
+    //             for T_l
+    int result_dimensionality =
+        this->get_dimensionality() + other.get_dimensionality() -
+        (left_contr.get_dimensionality() + right_contr.get_dimensionality());
+    BoundedCoordinateP2 sample_left = this->nonzeros[0]
+                                        .get_coords()
+                                        .remove(left_contr)
+                                        .get_bounded_p2(this->get_shape_ref());
+    BoundedCoordinateP2 sample_right = other.nonzeros[0]
+                                         .get_coords()
+                                         .remove(right_contr)
+                                         .get_bounded_p2(other.get_shape_ref());
+    int num_workers = std::thread::hardware_concurrency() / 2;
+    init_heaps(num_workers);
+    tf::Taskflow taskflow;
+    tf::Executor executor(num_workers);
+
+    TileIndexedTensor<DT>* left_indexed = nullptr;
+    TileIndexedTensor<DT>* right_indexed = nullptr;
+#pragma omp parallel num_threads(2)
+    {
+        if(omp_get_thread_num() == 0){
+            left_indexed = new TileIndexedTensor<DT>(*this, left_contr, tile_size);
+        }
+        else{
+            right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
+        }
+
+    }
+    uint64_t left_inner_max = left_indexed->tile_size;
+    uint64_t right_inner_max = right_indexed->tile_size;
+
+    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
+
+    ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
+    for (int _iter = 0; _iter < num_workers; _iter++) {
+      thread_local_accumulators.push_back(
+          TileAccumulatorDense<DT>(left_inner_max, right_inner_max, _iter));
+      thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
+    }
+
+    for (auto &left_tile : left_indexed->indexed_tensor) {
+      for (auto &right_tile : right_indexed->indexed_tensor) {
+
+        taskflow.emplace([&]() mutable {
+          int my_id = executor.this_worker_id();
+          TileAccumulatorDense<DT> &myacc =
+              thread_local_accumulators[my_id];
+          myacc.reset_accumulator(left_tile.first, right_tile.first);
+          for (const auto &left_entry : left_tile.second) {
+            auto right_entry = right_tile.second.find(left_entry.first);
+            if (right_entry != right_tile.second.end()) {
+              for (auto &left_ev :
+                   left_entry.second) { // loop over (e_l, nnz_l): external
+                                        // left, nnz at that external left.
+                for (auto &right_ev : right_entry->second) {
+                  uint64_t co_ordinate =
+                      left_ev.first * right_inner_max + right_ev.first;
+                  myacc.update(co_ordinate, left_ev.second * right_ev.second);
+                }
+              }
+            }
+          }
+          myacc.drain_into(thread_local_results[my_id],
+                           sample_left, sample_right);
+        });
+      }
+    }
+    executor.run(taskflow).wait();
+
+    ListTensor<RES>& result_tensor = thread_local_results[0];
+    for (int iter = 1; iter < num_workers; iter++) {
+      result_tensor.concatenate(thread_local_results[iter]);
+    }
+    return result_tensor;
+  }
 
   template <class RES, class RIGHT>
   ListTensor<RES>
@@ -794,22 +880,24 @@ template <class RES, class RIGHT>
     std::cout<<"Tile size is "<<tile_size<<std::endl;
     start = std::chrono::high_resolution_clock::now();
 
-    auto left_future = std::async(std::launch::async, [&](){
-        return TileIndexedTensor<RIGHT>(*this, left_contr, tile_size);
-    });
+    TileIndexedTensor<DT>* left_indexed;
+    TileIndexedTensor<DT>* right_indexed;
+#pragma omp parallel num_threads(2)
+    {
+        if(omp_get_thread_num() == 0){
+            *left_indexed = TileIndexedTensor<DT>(*this, left_contr, tile_size);
+        }
+        else{
+            *right_indexed = TileIndexedTensor<DT>(other, right_contr, tile_size);
+        }
 
-    auto right_future = std::async(std::launch::async, [&](){
-        return TileIndexedTensor<RIGHT>(other, right_contr, tile_size);
-    });
-
-    TileIndexedTensor<DT> left_indexed = left_future.get();
-    TileIndexedTensor<DT> right_indexed = right_future.get();
+    }
     //TileIndexedTensor<DT> left_indexed =
     //    TileIndexedTensor<DT>(*this, left_contr, tile_size);
-    uint64_t left_inner_max = left_indexed.tile_size;
+    uint64_t left_inner_max = left_indexed->tile_size;
     //TileIndexedTensor<RIGHT> right_indexed =
     //    TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
-    uint64_t right_inner_max = right_indexed.tile_size;
+    uint64_t right_inner_max = right_indexed->tile_size;
 
     std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
 
@@ -829,8 +917,8 @@ template <class RES, class RIGHT>
     std::cout << "Time taken to index: " << time_taken << std::endl;
     start = std::chrono::high_resolution_clock::now();
 
-    for (auto &left_tile : left_indexed.indexed_tensor) {
-      for (auto &right_tile : right_indexed.indexed_tensor) {
+    for (auto &left_tile : left_indexed->indexed_tensor) {
+      for (auto &right_tile : right_indexed->indexed_tensor) {
 
         taskflow.emplace([&]() mutable {
           int my_id = executor.this_worker_id();
