@@ -792,6 +792,7 @@ template <class RES, class RIGHT>
 
     TileIndexedTensor<DT>* left_indexed = nullptr;
     TileIndexedTensor<DT>* right_indexed = nullptr;
+    omp_set_nested(1);
 #pragma omp parallel num_threads(2)
     {
         if(omp_get_thread_num() == 0){
@@ -814,17 +815,19 @@ template <class RES, class RIGHT>
       thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
 
-    for (auto &left_tile : left_indexed->indexed_tensor) {
-      for (auto &right_tile : right_indexed->indexed_tensor) {
+    for (int i = 0; i < left_indexed->num_tiles(); i++){ //auto &left_tile : left_indexed) {
+      for (int j = 0; j < right_indexed->num_tiles(); j++){ //auto &right_tile : right_indexed) {
+          auto &left_tile = left_indexed->indexed_tensor[i];
+          auto &right_tile = right_indexed->indexed_tensor[j];
 
         taskflow.emplace([&]() mutable {
           int my_id = executor.this_worker_id();
           TileAccumulatorDense<DT> &myacc =
               thread_local_accumulators[my_id];
-          myacc.reset_accumulator(left_tile.first, right_tile.first);
-          for (const auto &left_entry : left_tile.second) {
-            auto right_entry = right_tile.second.find(left_entry.first);
-            if (right_entry != right_tile.second.end()) {
+          myacc.reset_accumulator(i, j);
+          for (const auto &left_entry : left_tile) {
+            auto right_entry = right_tile.find(left_entry.first);
+            if (right_entry != right_tile.end()) {
               for (auto &left_ev :
                    left_entry.second) { // loop over (e_l, nnz_l): external
                                         // left, nnz at that external left.
@@ -847,6 +850,7 @@ template <class RES, class RIGHT>
     for (int iter = 1; iter < num_workers; iter++) {
       result_tensor.concatenate(thread_local_results[iter]);
     }
+    std::cout<<"Got "<<result_tensor.compute_nnz_count()<<" nonzeros"<<std::endl; //TODO remove before flight
     return result_tensor;
   }
 
@@ -882,13 +886,14 @@ template <class RES, class RIGHT>
 
     TileIndexedTensor<DT>* left_indexed;
     TileIndexedTensor<DT>* right_indexed;
-#pragma omp parallel num_threads(2)
+    #pragma omp parallel num_threads(2)
     {
+    omp_set_nested(1);
         if(omp_get_thread_num() == 0){
-            *left_indexed = TileIndexedTensor<DT>(*this, left_contr, tile_size);
+            left_indexed = new TileIndexedTensor<DT>(*this, left_contr, tile_size);
         }
         else{
-            *right_indexed = TileIndexedTensor<DT>(other, right_contr, tile_size);
+            right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
         }
 
     }
@@ -917,20 +922,22 @@ template <class RES, class RIGHT>
     std::cout << "Time taken to index: " << time_taken << std::endl;
     start = std::chrono::high_resolution_clock::now();
 
-    for (auto &left_tile : left_indexed->indexed_tensor) {
-      for (auto &right_tile : right_indexed->indexed_tensor) {
+    for (int i = 0; i < left_indexed->num_tiles(); i++){ //auto &left_tile : left_indexed) {
+      for (int j = 0; j < right_indexed->num_tiles(); j++){ //auto &right_tile : right_indexed) {
+          auto &left_tile = left_indexed->indexed_tensor[i];
+          auto &right_tile = right_indexed->indexed_tensor[j];
 
-        taskflow.emplace([&]() mutable {
+        taskflow.emplace([&thread_local_accumulators, &thread_local_results, i, j, &left_tile, &right_tile, &executor, &first_thread_timer, &sample_left, &sample_right, &right_inner_max, &left_inner_max]() mutable {
           int my_id = executor.this_worker_id();
           TileAccumulatorDense<DT> &myacc =
               thread_local_accumulators[my_id];
-          myacc.reset_accumulator(left_tile.first, right_tile.first);
+          myacc.reset_accumulator(i, j);
           if (my_id == 0) {
             first_thread_timer.start_timer("filling_tile");
           }
-          for (const auto &left_entry : left_tile.second) {
-            auto right_entry = right_tile.second.find(left_entry.first);
-            if (right_entry != right_tile.second.end()) {
+          for (const auto &left_entry : left_tile) {
+            auto right_entry = right_tile.find(left_entry.first);
+            if (right_entry != right_tile.end()) {
               for (auto &left_ev :
                    left_entry.second) { // loop over (e_l, nnz_l): external
                                         // left, nnz at that external left.

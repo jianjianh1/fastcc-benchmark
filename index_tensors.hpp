@@ -4,6 +4,7 @@
 #include <emhash/hash_table8.hpp>
 #include "coordinate.hpp"
 #include "timer.hpp"
+#include <omp.h>
 #include <forward_list>
 #include <list>
 #include <random>
@@ -464,6 +465,8 @@ void make_next_power_of_two(std::vector<int> &shape) {
       shape[i] |= shape[i] >> 8;
       shape[i] |= shape[i] >> 16;
       shape[i]++;
+    } else{
+        shape[i] = shape[i]<<1;
     }
     shape[i] = int(log2(shape[i]));
   }
@@ -591,7 +594,8 @@ template <class DT> class TileIndexedTensor {
   using inner_list = std::vector<std::pair<uint64_t, DT>>;
   using middle_map = ankerl::unordered_dense::map<uint64_t, inner_list>;
   // Not sure about this, could be a vector if tiles are not degenerate.
-  using tile_map = ankerl::unordered_dense::map<uint64_t, middle_map>;
+  //using tile_map = ankerl::unordered_dense::map<uint64_t, middle_map>;
+  using tile_map = middle_map*;
   //using index_map = ankerl::unordered_dense::map<uint64_t, CompactCordinate>;
 
 public:
@@ -599,107 +603,80 @@ public:
   //index_map delinearization_lut;
   int *shape = nullptr;
   int tile_size = 0;
+  uint64_t ntiles = 0;
   uint64_t max_inner_val = 0;
 
-  using iterator = typename tile_map::iterator;
-  using value_type = typename tile_map::value_type;
-  iterator begin() { return indexed_tensor.begin(); }
-  iterator end() { return indexed_tensor.end(); }
   ~TileIndexedTensor() { }//make it leak, for now.
   TileIndexedTensor(){}
   TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords,
                     int tile_size)
       : tile_size(tile_size) {
     // Tile the dense space 0 to max_inner_val.
-          std::vector<int> removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
-          make_next_power_of_two(removed_shape);
-          std::vector<int> index_shape = base_tensor.get_nonzeros()[0].get_coords().get_shape();
-          make_next_power_of_two(index_shape);
-    if(this->tile_size == 0) {
-        this->tile_size = 1;
+    if (this->tile_size == 0) {
+      this->tile_size = 1;
     }
+    std::vector<int> removed_shape = base_tensor.get_nonzeros()[0]
+                                         .get_coords()
+                                         .remove(index_coords)
+                                         .get_shape();
+    make_next_power_of_two(removed_shape);
+    uint64_t span = 1;
+    for (auto &cord : removed_shape) {
+      span *= (1<<cord);
+    }
+    std::vector<int> index_shape =
+        base_tensor.get_nonzeros()[0].get_coords().get_shape();
+    make_next_power_of_two(index_shape);
+    //std::cout<<"Span is "<<span<<std::endl;
+    this->ntiles = (span / tile_size) + 1;
+    //std::cout<<"Number fo tiles "<<this->ntiles<<std::endl;
+    this->indexed_tensor = (middle_map *)calloc(this->ntiles, sizeof(middle_map));
+    for(int i = 0; i < this->ntiles; i++){
+        indexed_tensor[i] = middle_map();
+    }
+    int num_threads = std::min((uint64_t)this->ntiles, (uint64_t)std::thread::hardware_concurrency()/4);
+#pragma omp parallel num_threads(num_threads) shared(indexed_tensor)
     for (auto &nnz : base_tensor) {
-      uint64_t contraction_index =
-          nnz.get_coords().gather_linearize_exp2(index_coords, index_shape);//nnz.get_coords().gather(index_coords).linearize();
-      uint64_t remaining = nnz.get_coords().remove_linearize_exp2(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
+      uint64_t remaining = nnz.get_coords().remove_linearize_exp2(
+          index_coords,
+          removed_shape); // nnz.get_coords().remove(index_coords).linearize();
+      //if(remaining >= span){ //TODO remove before flight
+      //    std::cout<<"Coords "<<nnz.get_coords().remove(index_coords).to_string()<<std::endl;
+      //    std::cerr<<"Remaining index "<<remaining<<" is greater than the span "<<span<<std::endl;
+      //    exit(1);
+      //}
       uint64_t tile = remaining / this->tile_size;
+      //if(tile >= this->ntiles){ //TODO remove before flight
+      //    std::cerr<<"Tile index "<<tile<<" is greater than the number of tiles "<<this->ntiles<<std::endl;
+      //    exit(1);
+      //}
+      if (tile % num_threads != omp_get_thread_num())
+          continue;
+      uint64_t contraction_index = nnz.get_coords().gather_linearize_exp2(
+          index_coords,
+          index_shape); // nnz.get_coords().gather(index_coords).linearize();
       uint64_t inner = remaining % this->tile_size;
       DT data = nnz.get_data();
-      auto middle_slice = indexed_tensor.find(tile);
-      if (middle_slice != indexed_tensor.end()) {
-        auto inner_slice = middle_slice->second.find(contraction_index); //bottleneck 0 half the time here.
-        if (inner_slice != middle_slice->second.end()) {
+      middle_map &middle_slice = indexed_tensor[tile];
+      auto inner_slice = middle_slice.find(contraction_index);
+      if (inner_slice != middle_slice.end()) {
           inner_slice->second.push_back({inner, data});
-        } else {
-          middle_slice->second[contraction_index] = {{inner, data}}; //bottleneck 1
-        }
       } else {
-        inner_list new_inner_list({{inner, data}});
-        indexed_tensor[tile] = {{contraction_index, new_inner_list}};
+          middle_slice[contraction_index] = {
+              {inner, data}}; // bottleneck 1
       }
     }
-    //assert(this->get_size() ==
-    //       base_tensor.get_size()); // TODO: remove before flight
-  }
-
-  TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords, float scaling_factor = 1.0) {
-    // Tile the dense space 0 to max_inner_val.
-std::vector<int> removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
-          make_next_power_of_two(removed_shape);
-          std::vector<int> index_shape = base_tensor.get_nonzeros()[0].get_coords().get_shape();
-          make_next_power_of_two(index_shape);
-    uint64_t max_inner_val = 0;
-    std::vector<uint64_t> contraction_cords(base_tensor.get_size());
-    std::vector<uint64_t> external_cords(base_tensor.get_size());
-    int iter = 0;
-    auto start = std::chrono::high_resolution_clock::now();
-    for (auto &nnz : base_tensor) {
-      uint64_t index = nnz.get_coords().gather_linearize_exp2(index_coords, index_shape);
-      uint64_t remaining = nnz.get_coords().remove_linearize_exp2(index_coords, removed_shape);
-      CompactCordinate this_cord(nnz.get_coords());
-      //this->delinearization_lut.insert({remaining, this_cord});
-      if (remaining >= max_inner_val) {
-        max_inner_val = remaining;
-      }
-      contraction_cords[iter] = index;
-      external_cords[iter++] = remaining;
-    }
-    this->max_inner_val = max_inner_val;
-    std::cout<<"Max inner val: "<<max_inner_val<<std::endl;
-    this->tile_size = (int)(sqrt(max_inner_val) * scaling_factor);
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Time to calculate tile_size: " << elapsed.count()
-              << std::endl;
-    // make one extra tile with remainder.
-    for (int iter = 0; iter < base_tensor.get_size(); iter++) {
-      uint64_t contraction_index = contraction_cords[iter];
-      uint64_t remaining = external_cords[iter];
-      uint64_t tile = remaining / this->tile_size;
-      uint64_t inner = remaining % this->tile_size;
-      DT data = base_tensor.get_nonzeros()[iter].get_data();
-      auto middle_slice = indexed_tensor.find(tile);
-      if (middle_slice != indexed_tensor.end()) {
-        auto inner_slice = middle_slice->second.find(contraction_index);
-        if (inner_slice != middle_slice->second.end()) {
-          inner_slice->second.push_back({inner, data});
-        } else {
-          middle_slice->second[contraction_index] = {{inner, data}};
-        }
-      } else {
-        inner_list new_inner_list({{inner, data}});
-        indexed_tensor[tile] = {{contraction_index, new_inner_list}};
-      }
-    }
-    // assert(this->get_size() ==
-    //        base_tensor.get_size()); // TODO: remove before flight
+    //if(this->get_size() != base_tensor.get_size()){ //TODO remove before flight
+    //    std::cerr<<"Size mismatch "<<this->get_size()<<" vs "<<base_tensor.get_size()<<std::endl;
+    //    exit(1);
+    //}
   }
 
   uint64_t get_size() {
     uint64_t count = 0;
-    for (auto &tile : indexed_tensor) {
-      for (auto &middle : tile.second) {
-        count += middle.second.size();
+    for (uint64_t i = 0; i < this->ntiles; i++) {
+      for (auto &inner : indexed_tensor[i]) {
+        count += inner.second.size();
       }
     }
     return count;
@@ -716,7 +693,7 @@ std::vector<int> removed_shape = base_tensor.get_nonzeros()[0].get_coords().remo
   //              << std::endl;
   //  }
   //}
-  uint64_t num_tiles() { return indexed_tensor.size(); }
+  uint64_t num_tiles() { return this->ntiles; }
 };
 
 template <class DT> class IndexedTensor {
