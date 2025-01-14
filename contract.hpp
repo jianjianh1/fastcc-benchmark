@@ -644,14 +644,14 @@ template <class RES, class RIGHT>
     int result_dimensionality =
         this->get_dimensionality() + other.get_dimensionality() -
         (left_contr.get_dimensionality() + right_contr.get_dimensionality());
-    BoundedCoordinateP2 sample_left = this->nonzeros[0]
-                                        .get_coords()
-                                        .remove(left_contr)
-                                        .get_bounded_p2(this->get_shape_ref());
-    BoundedCoordinateP2 sample_right = other.nonzeros[0]
+    BoundedCoordinate sample_left = this->nonzeros[0]
+                                      .get_coords()
+                                      .remove(left_contr)
+                                      .get_bounded(this->get_shape_ref());
+    BoundedCoordinate sample_right = other.nonzeros[0]
                                          .get_coords()
                                          .remove(right_contr)
-                                         .get_bounded_p2(other.get_shape_ref());
+                                         .get_bounded(other.get_shape_ref());
     int num_workers = std::thread::hardware_concurrency() / 2;
     init_heaps(num_workers);
     tf::Taskflow taskflow;
