@@ -473,134 +473,14 @@ void make_next_power_of_two(std::vector<int> &shape) {
   return;
 }
 
-//parallel build of TileIndexed tensor - uses array in backend.
-template <class DT> class ParallelTileIndexedTensor {
-  // using hashmap_vals =
-  //     emhash8::HashMap<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
-  using inner_list = std::vector<std::pair<uint64_t, DT>>;
-  using middle_map = ankerl::unordered_dense::map<uint64_t, inner_list>;
-  // Not sure about this, could be a vector if tiles are not degenerate.
-  //using tile_map = ankerl::unordered_dense::map<uint64_t, middle_map>;
-
-  //use an array of tables - faster for scan?
-  using tile_array = std::vector<middle_map>;
-
-public:
-
-  //this is read from directly - need to search.
-  //expose [] operator to return tile - use in 2d_tile_join.
-
-  tile_array tiles;
-  int *shape = nullptr;
-  int tile_size = 0;
-
-  using iterator = typename tile_array::iterator;
-  using value_type = typename tile_array::value_type;
-  iterator begin() { return tiles.begin(); }
-  iterator end() { return tiles.end(); }
-
-  ParallelTileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords, int tile_size = 0): tile_size(tile_size) {
-
-    if(this->tile_size == 0) {
-        this->tile_size = 1;
-    }
-
-    auto removed_shape = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_shape();
-    uint64_t max_possible = base_tensor.get_nonzeros()[0].get_coords().remove(index_coords).get_linearized_max();
-
-    uint64_t n_tiles = (max_possible-1)/tile_size+1;
-
-    tiles.resize(n_tiles);
-
-    //std::cout << "Max possible is " << max_possible << ". therefore " << n_tiles << " tiles of size " << tile_size << std::endl;
-
-    uint64_t num_workers = std::thread::hardware_concurrency()/ 2;
-    //uint64_t num_workers = 32;
-    // tf::Taskflow build_tf;
-    // tf::Executor build_executor(num_workers);
-
-    uint64_t chunk_size = (n_tiles-1) / num_workers+1;
-    //uint64_t one = 1;
-    //uint64_t chunk_size = std::max(actual_chunk,one);
-
-    //printf("Chunk size is %lu\n", chunk_size);
-
-    #pragma omp parallel for num_threads(num_workers)
-    for (int i = 0; i < num_workers; i++){
-
-
-        uint64_t worker_id = i;
-
-
-        uint64_t min_bound = chunk_size*worker_id;
-
-        uint64_t max_bound = chunk_size*(worker_id+1);
-
-        //printf("Worker %lu bounds %lu->%lu\n", worker_id, min_bound, max_bound);
-
-
-        if (min_bound > n_tiles) continue;
-
-        //printf("Worker %lu alive! %lu->%lu, %lu < %lu\n", worker_id, min_bound, max_bound, min_bound, n_tiles);
-
-        for (auto &nnz : base_tensor) {
-          uint64_t contraction_index =
-              nnz.get_coords().gather_linearize(index_coords);//nnz.get_coords().gather(index_coords).linearize();
-          uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape); //nnz.get_coords().remove(index_coords).linearize();
-          
-          uint64_t tile = remaining / this->tile_size;
-          if (tile < min_bound || tile >= max_bound) continue;
-
-          CompactCordinate this_cord(nnz.get_coords());
-
-
-          //this->delinearization_lut.insert({remaining, this_cord});
-          
-          uint64_t inner = remaining % this->tile_size;
-          DT data = nnz.get_data();
-          auto & middle_slice = tiles[tile];
-          auto inner_slice = middle_slice.find(contraction_index);
-          if (inner_slice != middle_slice.end()) {
-            inner_slice->second.push_back({inner, data});
-          } else {
-            middle_slice[contraction_index] = {{inner, data}};
-          }
-        }
-
-
-    }
-
-  }
-
-  uint64_t get_size() {
-    uint64_t count = 0;
-    for (auto &tile : tiles) {
-      for (auto &middle : tile) {
-          count += middle.second.size();
-      }
-    }
-    return count;
-  }
-  uint64_t get_linear_index(uint64_t tile_index, uint64_t index_in_tile) {
-    return tile_index * tile_size + index_in_tile;
-  }
-  uint64_t num_tiles() { return tiles.size(); }
-};
-
-
 template <class DT> class TileIndexedTensor {
-  // using hashmap_vals =
-  //     emhash8::HashMap<uint64_t, std::vector<std::pair<uint64_t, DT>>>;
   using inner_list = std::vector<std::pair<uint64_t, DT>>;
   using middle_map = ankerl::unordered_dense::map<uint64_t, inner_list>;
   // Not sure about this, could be a vector if tiles are not degenerate.
-  //using tile_map = ankerl::unordered_dense::map<uint64_t, middle_map>;
   using tile_map = middle_map*;
-  //using index_map = ankerl::unordered_dense::map<uint64_t, CompactCordinate>;
 
 public:
   tile_map indexed_tensor;
-  //index_map delinearization_lut;
   int *shape = nullptr;
   int tile_size = 0;
   uint64_t ntiles = 0;
@@ -619,17 +499,11 @@ public:
                                          .get_coords()
                                          .remove(index_coords)
                                          .get_shape();
-    make_next_power_of_two(removed_shape);
     uint64_t span = 1;
     for (auto &cord : removed_shape) {
-      span *= (1<<cord);
+      span *= (cord + 1);
     }
-    std::vector<int> index_shape =
-        base_tensor.get_nonzeros()[0].get_coords().get_shape();
-    make_next_power_of_two(index_shape);
-    //std::cout<<"Span is "<<span<<std::endl;
-    this->ntiles = (span / tile_size) + 1;
-    //std::cout<<"Number fo tiles "<<this->ntiles<<std::endl;
+    this->ntiles = (span / tile_size) + (span % tile_size != 0);
     this->indexed_tensor = (middle_map *)calloc(this->ntiles, sizeof(middle_map));
     for(int i = 0; i < this->ntiles; i++){
         indexed_tensor[i] = middle_map();
@@ -637,24 +511,11 @@ public:
     int num_threads = std::min((uint64_t)this->ntiles, (uint64_t)std::thread::hardware_concurrency()/4);
 #pragma omp parallel num_threads(num_threads) shared(indexed_tensor)
     for (auto &nnz : base_tensor) {
-      uint64_t remaining = nnz.get_coords().remove_linearize_exp2(
-          index_coords,
-          removed_shape); // nnz.get_coords().remove(index_coords).linearize();
-      //if(remaining >= span){ //TODO remove before flight
-      //    std::cout<<"Coords "<<nnz.get_coords().remove(index_coords).to_string()<<std::endl;
-      //    std::cerr<<"Remaining index "<<remaining<<" is greater than the span "<<span<<std::endl;
-      //    exit(1);
-      //}
+      uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape);
       uint64_t tile = remaining / this->tile_size;
-      //if(tile >= this->ntiles){ //TODO remove before flight
-      //    std::cerr<<"Tile index "<<tile<<" is greater than the number of tiles "<<this->ntiles<<std::endl;
-      //    exit(1);
-      //}
       if (tile % num_threads != omp_get_thread_num())
           continue;
-      uint64_t contraction_index = nnz.get_coords().gather_linearize_exp2(
-          index_coords,
-          index_shape); // nnz.get_coords().gather(index_coords).linearize();
+      uint64_t contraction_index = nnz.get_coords().gather_linearize(index_coords);
       uint64_t inner = remaining % this->tile_size;
       DT data = nnz.get_data();
       middle_map &middle_slice = indexed_tensor[tile];
@@ -662,14 +523,9 @@ public:
       if (inner_slice != middle_slice.end()) {
           inner_slice->second.push_back({inner, data});
       } else {
-          middle_slice[contraction_index] = {
-              {inner, data}}; // bottleneck 1
+          middle_slice[contraction_index] = {{inner, data}}; // bottleneck 1
       }
     }
-    //if(this->get_size() != base_tensor.get_size()){ //TODO remove before flight
-    //    std::cerr<<"Size mismatch "<<this->get_size()<<" vs "<<base_tensor.get_size()<<std::endl;
-    //    exit(1);
-    //}
   }
 
   uint64_t get_size() {
@@ -684,15 +540,6 @@ public:
   uint64_t get_linear_index(uint64_t tile_index, uint64_t index_in_tile) {
     return tile_index * tile_size + index_in_tile;
   }
-  //CompactCordinate delinearize(uint64_t index) {
-  //  return this->delinearization_lut[index];
-  //}
-  //void print_lut() {
-  //  for (auto &p : this->delinearization_lut) {
-  //    std::cout << p.first << " " << p.second.as_coordinate().to_string()
-  //              << std::endl;
-  //  }
-  //}
   uint64_t num_tiles() { return this->ntiles; }
 };
 
