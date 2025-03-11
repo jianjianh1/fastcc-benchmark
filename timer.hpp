@@ -43,11 +43,11 @@ public:
       func_timer[func_name] = this_time;
   }
   void add_event(std::string event_name, uint64_t count = 1) {
-    auto it = func_timer.find(event_name);
-    if (it != func_timer.end())
+    auto it = event_counter.find(event_name);
+    if (it != event_counter.end())
       it->second += count;
     else
-      func_timer[event_name] = count;
+      event_counter[event_name] = count;
   }
   void print_all_times() {
     for (auto &p : func_timer) {
