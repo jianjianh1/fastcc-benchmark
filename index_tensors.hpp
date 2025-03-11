@@ -503,6 +503,9 @@ public:
     for (auto &cord : removed_shape) {
       span *= (cord + 1);
     }
+    if(this->tile_size == -1){
+        this->tile_size = span;
+    }
     this->ntiles = (span / tile_size) + (span % tile_size != 0);
     this->indexed_tensor = (middle_map *)calloc(this->ntiles, sizeof(middle_map));
     for(int i = 0; i < this->ntiles; i++){

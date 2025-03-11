@@ -1,6 +1,7 @@
 #ifndef TIMER_HPP
 #define TIMER_HPP
 #include <chrono>
+#include <forward_list>
 #include <thread>
 #include <iostream>
 #include <string>
@@ -9,6 +10,7 @@
 class Timer {
 private:
   std::unordered_map<std::string, float> func_timer;
+  std::unordered_map<std::string, uint64_t> event_counter;
   std::chrono::high_resolution_clock::time_point start;
   std::chrono::high_resolution_clock::time_point end;
   std::string current_func = "";
@@ -40,40 +42,65 @@ public:
     else
       func_timer[func_name] = this_time;
   }
+  void add_event(std::string event_name, uint64_t count = 1) {
+    auto it = func_timer.find(event_name);
+    if (it != func_timer.end())
+      it->second += count;
+    else
+      func_timer[event_name] = count;
+  }
   void print_all_times() {
     for (auto &p : func_timer) {
       std::cout << p.first << ", " << p.second << std::endl;
     }
   }
+  void print_all_events() {
+    for (auto &p : event_counter) {
+      std::cout << p.first << ", " << p.second << std::endl;
+    }
+  }
 };
+
+
 
 class ManagedHeap{
     private:
-        void* ptr;
+        std::forward_list<void*> ptrs;
+        void* current_ptr = NULL;
         uint64_t size = 0;
         uint64_t base = 0;
     public:
         ManagedHeap(uint64_t size){
             this->size = size;
-            this->ptr = calloc(size, 1);
-            if(this->ptr == NULL){
+            this->current_ptr = calloc(size, 1);
+            if(this->current_ptr == NULL){
                 std::cerr << "Failed to allocate memory in the managed heap" << std::endl;
                 exit(1);
             }
             this->base = 0;
         }
-        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<36){}
+        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<30){}
         ManagedHeap(const ManagedHeap&) = delete;
         ~ManagedHeap(){
-            free(ptr);
+            for(auto ptr : ptrs){
+                free(ptr);
+            }
+            free(current_ptr);
         }
         void* alloc(uint64_t requested_size){
             if(requested_size + base > size){
-                std::cerr << "Requested size "<<requested_size<<" is larger than the heap size " <<size << std::endl;
-                std::cerr << "Base is " << base << std::endl;
-                exit(1);
+                //std::cout << "Requested size "<<requested_size<<" is larger than the heap size " <<size << std::endl;
+                //std::cout << "Base is " << base << std::endl;
+                //exit(1);
+                ptrs.push_front(current_ptr);
+                this->current_ptr = calloc(size, 1);
+                if(current_ptr == NULL){
+                    std::cerr << "Failed to re-allocate memory in the managed heap" << std::endl;
+                    exit(1);
+                }
+                this->base = 0;
             }
-            void* ret = (void*)((char*)ptr + base);
+            void* ret = (void*)((char*)this->current_ptr + base);
             base += requested_size;
             return ret;
         }

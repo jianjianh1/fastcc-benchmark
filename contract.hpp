@@ -976,7 +976,7 @@ template <class RES, class RIGHT>
 template <class RES, class RIGHT>
   ListTensor<RES>
   tile2d_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
-                       CoOrdinate right_contr, int tile_size = 100) {
+                       CoOrdinate right_contr, int left_tile_size = 100, int right_tile_size = 100) {
     // for l_T
     //   for r_T
     //      for c
@@ -996,14 +996,17 @@ template <class RES, class RIGHT>
     std::cout << "Result dimensionality: " << result_dimensionality
               << std::endl;
     std::chrono::high_resolution_clock::time_point start, end;
+    std::cout<<"left tile size is "<<left_tile_size<<std::endl;
+    init_heaps(1);
     start = std::chrono::high_resolution_clock::now();
 
     TileIndexedTensor<DT> left_indexed =
-        TileIndexedTensor<DT>(*this, left_contr, tile_size);
+        TileIndexedTensor<DT>(*this, left_contr, left_tile_size);
     uint64_t left_inner_max = left_indexed.tile_size;
     TileIndexedTensor<RIGHT> right_indexed =
-        TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
+        TileIndexedTensor<RIGHT>(other, right_contr, right_tile_size);
     uint64_t right_inner_max = right_indexed.tile_size;
+    std::cout<<"right tile size is "<<right_indexed.tile_size<<std::endl;
 
     TileAccumulatorMap<RES> tile_accumulator(left_inner_max, right_inner_max);
     end = std::chrono::high_resolution_clock::now();
@@ -1016,13 +1019,20 @@ template <class RES, class RIGHT>
 
     start = std::chrono::high_resolution_clock::now();
 
-    for (auto &left_tile : left_indexed.indexed_tensor) {
-      for (auto &right_tile : right_indexed.indexed_tensor) {
-        tile_accumulator.reset_accumulator(left_tile.first, right_tile.first);
-        for (const auto &left_entry : left_tile.second) {
+    //for (auto &left_tile : left_indexed.indexed_tensor) {
+    //  for (auto &right_tile : right_indexed.indexed_tensor) {
+    for (int i = 0; i < left_indexed.num_tiles(); i++){ //auto &left_tile : left_indexed) {
+      for (int j = 0; j < right_indexed.num_tiles(); j++){ //auto &right_tile : right_indexed) {
+          auto &left_tile = left_indexed.indexed_tensor[i];
+          auto &right_tile = right_indexed.indexed_tensor[j];
+        tile_accumulator.reset_accumulator(i, j);
+        for (const auto &left_entry : left_tile) {
           auto right_entry =
-              right_tile.second.find(left_entry.first);
-          if (right_entry != right_tile.second.end()) {
+              right_tile.find(left_entry.first);
+          mytimer.add_event("queries");
+          if (right_entry != right_tile.end()) {
+              mytimer.add_event("left_dv", left_entry.second.size());
+              mytimer.add_event("right_dv", right_entry->second.size());
             for (auto &left_ev :
                  left_entry.second) { // loop over (e_l, nnz_l): external
                                       // left, nnz at that external left.
@@ -1046,6 +1056,7 @@ template <class RES, class RIGHT>
             .count();
     std::cout << "Time taken to contract: " << time_taken << std::endl;
     mytimer.print_all_times();
+    mytimer.print_all_events();
 
     start = std::chrono::high_resolution_clock::now();
 
