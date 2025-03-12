@@ -79,7 +79,7 @@ class ManagedHeap{
             }
             this->base = 0;
         }
-        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<32){}
+        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<36){}
         ManagedHeap(const ManagedHeap&) = delete;
         ~ManagedHeap(){
             for(auto ptr : ptrs){
@@ -88,8 +88,12 @@ class ManagedHeap{
             free(current_ptr);
         }
         void* alloc(uint64_t requested_size){
+            if(requested_size >= this->size){
+                std::cerr<<"cant' give memory this big "<<std::endl;
+                exit(1);
+            }
             if((requested_size + this->base) >= this->size){
-                ptrs.push_front(current_ptr);
+                ptrs.push_front(this->current_ptr);
                 this->current_ptr = calloc(size, 1);
                 if(current_ptr == NULL){
                     std::cerr << "Failed to re-allocate memory in the managed heap" << std::endl;
