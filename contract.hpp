@@ -212,6 +212,38 @@ public:
     return {lower_bound, upper_bound};
   }
 
+  float avg_nnz_per_tile(CoOrdinate contr_pos, int tile_size){
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, contr_pos, tile_size);
+    float avg = 0.0;
+    for(int i = 0; i < left_indexed.num_tiles(); i++){
+      avg += left_indexed.num_nnz_in_tile(i);
+    }
+    avg /= left_indexed.num_tiles();
+    return avg;
+  }
+
+  float avg_nnz_per_active_column(CoOrdinate contr_pos, int tile_size){
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, contr_pos, tile_size);
+    float avg = 0.0;
+    for(int i = 0; i < left_indexed.num_tiles(); i++){
+      avg += left_indexed.nnz_per_active_column(i);
+    }
+    avg /= left_indexed.num_tiles();
+    return avg;
+  }
+  float avg_active_columns(CoOrdinate contr_pos, int tile_size){
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, contr_pos, tile_size);
+    float avg = 0.0;
+    for(int i = 0; i < left_indexed.num_tiles(); i++){
+      avg += float(left_indexed.num_active_columns(i));
+    }
+    avg /= float(left_indexed.num_tiles());
+    return avg;
+  }
+
   template <class Right>
   std::pair<uint64_t, uint64_t> bound_output_nnz_outer_outer(Tensor<Right> &other,
                                                  CoOrdinate left_contr,
@@ -1008,7 +1040,7 @@ template <class RES, class RIGHT>
     uint64_t right_inner_max = right_indexed.tile_size;
     std::cout<<"right tile size is "<<right_indexed.tile_size<<std::endl;
 
-    TileAccumulatorMap<RES> tile_accumulator(left_inner_max, right_inner_max);
+    TileAccumulator<RES> tile_accumulator(left_inner_max, right_inner_max);
     end = std::chrono::high_resolution_clock::now();
     double time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
@@ -1019,20 +1051,18 @@ template <class RES, class RIGHT>
 
     start = std::chrono::high_resolution_clock::now();
 
-    //for (auto &left_tile : left_indexed.indexed_tensor) {
-    //  for (auto &right_tile : right_indexed.indexed_tensor) {
-    for (int i = 0; i < left_indexed.num_tiles(); i++){ //auto &left_tile : left_indexed) {
-      for (int j = 0; j < right_indexed.num_tiles(); j++){ //auto &right_tile : right_indexed) {
+    for (int i = 0; i < left_indexed.num_tiles(); i++){
+      for (int j = 0; j < right_indexed.num_tiles(); j++){
           auto &left_tile = left_indexed.indexed_tensor[i];
           auto &right_tile = right_indexed.indexed_tensor[j];
         tile_accumulator.reset_accumulator(i, j);
         for (const auto &left_entry : left_tile) {
           auto right_entry =
               right_tile.find(left_entry.first);
-          mytimer.add_event("queries");
+          //mytimer.add_event("queries");
           if (right_entry != right_tile.end()) {
-              mytimer.add_event("left_dv", left_entry.second.size());
-              mytimer.add_event("right_dv", right_entry->second.size());
+              //mytimer.add_event("left_dv", left_entry.second.size());
+              //mytimer.add_event("right_dv", right_entry->second.size());
             for (auto &left_ev :
                  left_entry.second) { // loop over (e_l, nnz_l): external
                                       // left, nnz at that external left.
@@ -1045,9 +1075,9 @@ template <class RES, class RIGHT>
           }
         }
         // drain here.
-        mytimer.start_timer("drain");
+        //mytimer.start_timer("drain");
         tile_accumulator.drain_into(result_tensor, sample_left, sample_right);
-        mytimer.end_timer("drain");
+        //mytimer.end_timer("drain");
       }
     }
     end = std::chrono::high_resolution_clock::now();

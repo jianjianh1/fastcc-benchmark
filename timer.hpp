@@ -79,7 +79,7 @@ class ManagedHeap{
             }
             this->base = 0;
         }
-        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<30){}
+        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<32){}
         ManagedHeap(const ManagedHeap&) = delete;
         ~ManagedHeap(){
             for(auto ptr : ptrs){
@@ -88,10 +88,7 @@ class ManagedHeap{
             free(current_ptr);
         }
         void* alloc(uint64_t requested_size){
-            if(requested_size + base > size){
-                //std::cout << "Requested size "<<requested_size<<" is larger than the heap size " <<size << std::endl;
-                //std::cout << "Base is " << base << std::endl;
-                //exit(1);
+            if((requested_size + this->base) >= this->size){
                 ptrs.push_front(current_ptr);
                 this->current_ptr = calloc(size, 1);
                 if(current_ptr == NULL){
@@ -100,8 +97,8 @@ class ManagedHeap{
                 }
                 this->base = 0;
             }
-            void* ret = (void*)((char*)this->current_ptr + base);
-            base += requested_size;
+            void* ret = (void*)((char*)this->current_ptr + this->base);
+            this->base += requested_size;
             return ret;
         }
 };

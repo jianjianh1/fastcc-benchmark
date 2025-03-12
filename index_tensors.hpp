@@ -90,7 +90,7 @@ public:
   void push_nnz(DT data, CompactCordinate cord) {
     NNZNode<DT>* new_node = (NNZNode<DT>*)my_malloc(sizeof(NNZNode<DT>), thread_id);
     *new_node = NNZNode<DT>(data, cord);
-    count++;
+    this->count++;
     if(head == tail && head == nullptr){
         head = new_node;
         tail = new_node;
@@ -544,6 +544,25 @@ public:
     return tile_index * tile_size + index_in_tile;
   }
   uint64_t num_tiles() { return this->ntiles; }
+  uint64_t num_nnz_in_tile(uint64_t tile_index) {
+    uint64_t count = 0;
+    for (auto &inner : indexed_tensor[tile_index]) {
+      count += inner.second.size();
+    }
+    return count;
+  }
+  float nnz_per_active_column(uint64_t tile_index) {
+      float numerator = float(this->num_nnz_in_tile(tile_index));
+      float denominator = float(this->indexed_tensor[tile_index].size()); //number of active columns
+      if(denominator == 0){
+          assert(numerator == 0);
+          return 0.0;
+      }
+      return numerator/denominator;
+  }
+  uint64_t num_active_columns(uint64_t tile_index) {
+      return this->indexed_tensor[tile_index].size();
+  }
 };
 
 template <class DT> class IndexedTensor {
@@ -827,19 +846,19 @@ private:
   DT *data_accumulator;
   uint8_t *bitmask;
   uint64_t *active_positions;
-  int pos_iter = 0;
-  int global_count = 0;
+  uint64_t pos_iter = 0;
+  uint64_t global_count = 0;
   int num_tiles = 1;
-  int left_tile_dim = 0;
-  int right_tile_dim = 0;
+  uint64_t left_tile_dim = 0;
+  uint64_t right_tile_dim = 0;
   int left_tile_index = 0;
   int right_tile_index = 0;
   int thread_id;
 
 public:
-  TileAccumulator(int left_tile_dim, int right_tile_dim, int thread_id = 0)
+  TileAccumulator(uint64_t left_tile_dim, uint64_t right_tile_dim, int thread_id = 0)
       : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim), thread_id(thread_id) {
-    int tile_area = left_tile_dim * right_tile_dim;
+    uint64_t tile_area = left_tile_dim * right_tile_dim;
     assert(((right_tile_dim & (right_tile_dim - 1)) == 0));
     //this->data_accumulator = (DT *)malloc(tile_area * sizeof(DT));
     this->data_accumulator = (DT *)my_calloc(tile_area, sizeof(DT), thread_id);
@@ -858,7 +877,7 @@ public:
   }
   void update(uint64_t pos, DT val) {
     uint8_t bitpos = 1 << (7 - (pos % 8));
-    int bytepos = pos / 8;
+    uint64_t bytepos = pos / 8;
     uint8_t old_mask = this->bitmask[bytepos] & bitpos;
     if (old_mask == 0) {
       active_positions[this->pos_iter++] = pos;
@@ -869,9 +888,9 @@ public:
   template <class TensorType, class BCType>
   void drain_into(TensorType &result_tensor, BCType& sample_left,
              BCType& sample_right) {
-    for (int iter = 0; iter < pos_iter; iter++) {
-      int i = active_positions[iter] >> int(log(right_tile_dim));
-      int j = active_positions[iter] & (right_tile_dim - 1);
+    for (int iter = 0; iter < this->pos_iter; iter++) {
+      uint64_t i = active_positions[iter] >> uint64_t(log(right_tile_dim));
+      uint64_t j = active_positions[iter] & (right_tile_dim - 1);
       uint64_t left_index = this->left_tile_index * left_tile_dim + i;
           //left_indexed.get_linear_index(this->left_tile_index, i);
       uint64_t right_index = this->right_tile_index * right_tile_dim + j;
