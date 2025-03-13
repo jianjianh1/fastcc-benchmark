@@ -79,7 +79,7 @@ class ManagedHeap{
             }
             this->base = 0;
         }
-        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<36){}
+        ManagedHeap(): ManagedHeap(((uint64_t)(1))<<37){}
         ManagedHeap(const ManagedHeap&) = delete;
         ~ManagedHeap(){
             for(auto ptr : ptrs){

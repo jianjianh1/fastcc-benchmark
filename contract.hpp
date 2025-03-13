@@ -227,10 +227,13 @@ public:
     TileIndexedTensor<DT> left_indexed =
         TileIndexedTensor<DT>(*this, contr_pos, tile_size);
     float avg = 0.0;
+    int iter = 0;
     for(int i = 0; i < left_indexed.num_tiles(); i++){
-      avg += left_indexed.nnz_per_active_column(i);
+        auto this_cnt = left_indexed.nnz_per_active_column(i);
+      avg += this_cnt;
+      if(this_cnt > 0) iter++;
     }
-    avg /= left_indexed.num_tiles();
+    avg /= iter;
     return avg;
   }
   float avg_active_columns(CoOrdinate contr_pos, int tile_size){
