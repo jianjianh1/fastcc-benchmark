@@ -473,6 +473,21 @@ void make_next_power_of_two(std::vector<int> &shape) {
   return;
 }
 
+int make_next_power_of_two(int something) {
+  if ((something & (something - 1)) != 0) {
+    // copied from stack overflow post
+    // https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2
+    something--;
+    something |= something >> 1;
+    something |= something >> 2;
+    something |= something >> 4;
+    something |= something >> 8;
+    something |= something >> 16;
+    something++;
+  }
+  return something;
+}
+
 template <class DT> class TileIndexedTensor {
   using inner_list = std::vector<std::pair<uint64_t, DT>>;
   using middle_map = ankerl::unordered_dense::map<uint64_t, inner_list>;
@@ -504,9 +519,9 @@ public:
       span *= (cord + 1);
     }
     if(this->tile_size == -1){
-        this->tile_size = span;
+        this->tile_size = make_next_power_of_two(span);
     }
-    this->ntiles = (span / tile_size) + (span % tile_size != 0);
+    this->ntiles = (span / this->tile_size) + (span % (this->tile_size) != 0);
     this->indexed_tensor = (middle_map *)calloc(this->ntiles, sizeof(middle_map));
     for(int i = 0; i < this->ntiles; i++){
         indexed_tensor[i] = middle_map();
@@ -559,6 +574,32 @@ public:
           return 0.0;
       }
       return numerator/denominator;
+  }
+  //returns a histogram of contraction index(index cord) and the number of tiles in which that shows up.
+  std::unordered_map<uint64_t, uint64_t> idx_freq(){
+      std::unordered_map<uint64_t, uint64_t> freq;
+      for(uint64_t i = 0; i < this->ntiles; i++){
+          for(auto& inner : indexed_tensor[i]){
+              if(freq.find(inner.first) == freq.end()){
+                  freq[inner.first] = 1;
+              } else {
+                  freq[inner.first]++;
+              }
+          }
+      }
+      return freq;
+  }
+  uint64_t nnz_in_idx_cord(uint64_t c_pos){
+      // Count the total number of nonzeros in the indexed tensor at a given position in C (column).
+      // Sum over all tiles.
+      uint64_t count = 0;
+      for(uint64_t i = 0; i < this->ntiles; i++){
+          auto it = this->indexed_tensor[i].find(c_pos);
+          if(it != this->indexed_tensor[i].end()){
+              count += it->second.size();
+          }
+      }
+      return count;
   }
   uint64_t num_active_columns(uint64_t tile_index) {
       return this->indexed_tensor[tile_index].size();

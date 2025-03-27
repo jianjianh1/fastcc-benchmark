@@ -217,7 +217,7 @@ template <> void Tensor<double>::write(std::string filename) {
   }
   file << std::endl;
   for (auto &nnz : this->nonzeros) {
-    file << nnz.get_coords().to_string() << " " << nnz.get_data() << std::endl;
+    file << nnz.get_coords().to_string() << nnz.get_data() << std::endl;
   }
   file.close();
 }

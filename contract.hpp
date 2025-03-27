@@ -240,11 +240,24 @@ public:
     TileIndexedTensor<DT> left_indexed =
         TileIndexedTensor<DT>(*this, contr_pos, tile_size);
     float avg = 0.0;
+    int iter = 0;
     for(int i = 0; i < left_indexed.num_tiles(); i++){
-      avg += float(left_indexed.num_active_columns(i));
+        auto this_cnt = left_indexed.num_active_columns(i);
+        if(this_cnt > 0) iter++;
+      avg += this_cnt;
     }
-    avg /= float(left_indexed.num_tiles());
+    avg /= iter;
     return avg;
+  }
+
+  uint64_t total_active_columns(CoOrdinate contr_pos, int tile_size){
+    TileIndexedTensor<DT> left_indexed =
+        TileIndexedTensor<DT>(*this, contr_pos, tile_size);
+    uint64_t total = 0;
+    for(int i = 0; i < left_indexed.num_tiles(); i++){
+        total += left_indexed.num_active_columns(i);
+    }
+    return total;
   }
 
   template <class Right>
@@ -756,10 +769,62 @@ template <class RES, class RIGHT>
     return result_tensor;
   }
 
-  template <class RES, class RIGHT>
+  template <class RIGHT>
+  std::pair<uint64_t, uint64_t>
+  compute_cost(Tensor<RIGHT> &other, CoOrdinate left_contr,
+               CoOrdinate right_contr, int left_tile_size = 100,
+               int right_tile_size = 100) {
+      uint64_t c_max = this->get_nonzeros()[0].get_coords().gather(left_contr).get_linearized_max();
+    TileIndexedTensor<DT> *left_indexed;
+    TileIndexedTensor<DT> *right_indexed;
+#pragma omp parallel num_threads(2)
+    {
+      omp_set_nested(1);
+      if (omp_get_thread_num() == 0) {
+        left_indexed =
+            new TileIndexedTensor<DT>(*this, left_contr, left_tile_size);
+      } else {
+        right_indexed =
+            new TileIndexedTensor<DT>(other, right_contr, right_tile_size);
+      }
+    }
+    uint64_t left_inner_max = left_indexed->tile_size;
+    std::cout << "Left tile size is " << left_inner_max
+              << ", number of tiles is " << left_indexed->num_tiles()
+              << std::endl;
+    uint64_t right_inner_max = right_indexed->tile_size;
+    std::cout << "Right tile size is " << right_indexed->tile_size
+              << ", number of tiles is " << right_indexed->num_tiles()
+              << std::endl;
+    // Number of queries is TotalActiveC_left(TL) * number of tiles on the right.
+    uint64_t num_active_leftcols = 0;
+    for(uint64_t tile_iter = 0; tile_iter < left_indexed->num_tiles(); tile_iter++){
+        num_active_leftcols += left_indexed->num_active_columns(tile_iter);
+    }
+    uint64_t num_queries = num_active_leftcols * right_indexed->num_tiles();
+
+
+    // Data volume of right tensor is summation_c(NNZCount_R(c) * FreqColumnC_L(TL, c)) TL is the tile size of left, FreqColumnC_L is the number of tiles in which c is active on the left tensor.
+    uint64_t right_data_volume = 0;
+    uint64_t left_data_volume = 0;
+    std::cout<<"C_Max is "<<c_max<<std::endl;
+    auto frequencies_left = left_indexed->idx_freq();
+    auto frequencies_right = right_indexed->idx_freq();
+    for(uint64_t c_iter = 0; c_iter < c_max; c_iter++){
+        uint64_t nnz_count_R = right_indexed->nnz_in_idx_cord(c_iter);
+        uint64_t nnz_count_L = left_indexed->nnz_in_idx_cord(c_iter);
+        uint64_t freq_L = frequencies_left[c_iter];
+        uint64_t freq_R = frequencies_right[c_iter];
+        right_data_volume += nnz_count_R * freq_L;
+        left_data_volume += nnz_count_L * freq_R;
+    }
+    return {num_queries, right_data_volume + left_data_volume};
+  }
+
+  template <class AccType, class RES, class RIGHT>
   ListTensor<RES>
   parallel_tile2d_outer_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
-                                 CoOrdinate right_contr, int tile_size = 100) {
+                                 CoOrdinate right_contr, int left_tile_size = 100, int right_tile_size = 100) {
     // for l_T
     //   for r_T
     //      for c
@@ -783,7 +848,6 @@ template <class RES, class RIGHT>
     init_heaps(num_workers);
     tf::Taskflow taskflow;
     tf::Executor executor(num_workers);
-    std::cout<<"Tile size is "<<tile_size<<std::endl;
     start = std::chrono::high_resolution_clock::now();
 
     TileIndexedTensor<DT>* left_indexed;
@@ -792,78 +856,82 @@ template <class RES, class RIGHT>
     {
     omp_set_nested(1);
         if(omp_get_thread_num() == 0){
-            left_indexed = new TileIndexedTensor<DT>(*this, left_contr, tile_size);
+            left_indexed = new TileIndexedTensor<DT>(*this, left_contr, left_tile_size);
         }
         else{
-            right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
+            right_indexed = new TileIndexedTensor<DT>(other, right_contr, right_tile_size);
         }
 
     }
     //TileIndexedTensor<DT> left_indexed =
     //    TileIndexedTensor<DT>(*this, left_contr, tile_size);
     uint64_t left_inner_max = left_indexed->tile_size;
+    std::cout<<"Left tile size is "<<left_inner_max<<", number of tiles is "<<left_indexed->num_tiles()<<std::endl;
     //TileIndexedTensor<RIGHT> right_indexed =
     //    TileIndexedTensor<RIGHT>(other, right_contr, left_indexed.tile_size);
     uint64_t right_inner_max = right_indexed->tile_size;
+    std::cout<<"Right tile size is "<<right_indexed->tile_size<<", number of tiles is "<<right_indexed->num_tiles()<<std::endl;
 
-    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
+    std::vector<AccType> thread_local_accumulators;
 
     ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulatorDense<DT>(left_inner_max, right_inner_max, _iter));
+          AccType(left_inner_max, right_inner_max, _iter));
       thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
     Timer first_thread_timer;
     end = std::chrono::high_resolution_clock::now();
 
-    end = std::chrono::high_resolution_clock::now();
     double time_taken =
         std::chrono::duration_cast<std::chrono::microseconds>(end - start)
             .count();
     std::cout << "Time taken to index: " << time_taken << std::endl;
     start = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < left_indexed->num_tiles(); i++){ //auto &left_tile : left_indexed) {
-      for (int j = 0; j < right_indexed->num_tiles(); j++){ //auto &right_tile : right_indexed) {
-          auto &left_tile = left_indexed->indexed_tensor[i];
-          auto &right_tile = right_indexed->indexed_tensor[j];
+    for (int i = 0; i < left_indexed->num_tiles(); i++) {
+      for (int j = 0; j < right_indexed->num_tiles(); j++) {
+            auto &left_tile = left_indexed->indexed_tensor[i];
+            auto &right_tile = right_indexed->indexed_tensor[j];
 
-        taskflow.emplace([&thread_local_accumulators, &thread_local_results, i, j, &left_tile, &right_tile, &executor, &first_thread_timer, &sample_left, &sample_right, &right_inner_max, &left_inner_max]() mutable {
-          int my_id = executor.this_worker_id();
-          TileAccumulatorDense<DT> &myacc =
-              thread_local_accumulators[my_id];
-          myacc.reset_accumulator(i, j);
-          if (my_id == 0) {
-            first_thread_timer.start_timer("filling_tile");
-          }
-          for (const auto &left_entry : left_tile) {
-            auto right_entry = right_tile.find(left_entry.first);
-            if (right_entry != right_tile.end()) {
-              for (auto &left_ev :
-                   left_entry.second) { // loop over (e_l, nnz_l): external
-                                        // left, nnz at that external left.
-                for (auto &right_ev : right_entry->second) {
-                  uint64_t co_ordinate =
-                      left_ev.first * right_inner_max + right_ev.first;
-                  myacc.update(co_ordinate, left_ev.second * right_ev.second);
+            taskflow.emplace([&thread_local_accumulators, &thread_local_results,
+                              i, j, &left_tile, &right_tile, &executor,
+                              &first_thread_timer, &sample_left, &sample_right,
+                              &right_inner_max, &left_inner_max]() mutable {
+              int my_id = executor.this_worker_id();
+              AccType &myacc = thread_local_accumulators[my_id];
+              myacc.reset_accumulator(i, j);
+              // if (my_id == 0) {
+              //   first_thread_timer.start_timer("filling_tile");
+              // }
+              for (const auto &left_entry : left_tile) {
+                auto right_entry = right_tile.find(left_entry.first);
+                if (right_entry != right_tile.end()) {
+                  for (auto &left_ev :
+                       left_entry.second) { // loop over (e_l, nnz_l): external
+                                            // left, nnz at that external left.
+                    for (auto &right_ev : right_entry->second) {
+                      uint64_t co_ordinate =
+                          left_ev.first * right_inner_max + right_ev.first;
+                      myacc.update(co_ordinate,
+                                   left_ev.second * right_ev.second);
+                    }
+                  }
                 }
               }
-            }
-          }
-          if (my_id == 0) {
-            first_thread_timer.end_timer("filling_tile");
-          }
-          if (my_id == 0) {
-            first_thread_timer.start_timer("draining_tile");
-          }
-          // drain here.
-          myacc.drain_into(thread_local_results[my_id],
-                           sample_left, sample_right);
-          if (my_id == 0) {
-            first_thread_timer.end_timer("draining_tile");
-          }
-        });
+              // if (my_id == 0) {
+              //   first_thread_timer.end_timer("filling_tile");
+              // }
+              if (my_id == 0) {
+                first_thread_timer.start_timer("draining_tile");
+              }
+              // drain here.
+              myacc.drain_into(thread_local_results[my_id], sample_left,
+                               sample_right);
+              if (my_id == 0) {
+                first_thread_timer.end_timer("draining_tile");
+              }
+            });
       }
     }
     executor.run(taskflow).wait();
@@ -1062,10 +1130,10 @@ template <class RES, class RIGHT>
         for (const auto &left_entry : left_tile) {
           auto right_entry =
               right_tile.find(left_entry.first);
-          //mytimer.add_event("queries");
+          mytimer.add_event("queries");
           if (right_entry != right_tile.end()) {
-              //mytimer.add_event("left_dv", left_entry.second.size());
-              //mytimer.add_event("right_dv", right_entry->second.size());
+              mytimer.add_event("left_dv", left_entry.second.size());
+              mytimer.add_event("right_dv", right_entry->second.size());
             for (auto &left_ev :
                  left_entry.second) { // loop over (e_l, nnz_l): external
                                       // left, nnz at that external left.
