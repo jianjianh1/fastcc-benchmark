@@ -1,3 +1,6 @@
 [submodule "emhash"]
 	path = emhash
 	url = git@github.com:ktprime/emhash.git
+[submodule "abseil-cpp"]
+	path = abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git
