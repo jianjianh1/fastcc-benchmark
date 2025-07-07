@@ -526,7 +526,7 @@ public:
     for(int i = 0; i < this->ntiles; i++){
         indexed_tensor[i] = middle_map();
     }
-    int num_threads = std::min((uint64_t)this->ntiles, (uint64_t)std::thread::hardware_concurrency()/4);
+    int num_threads = std::min((uint64_t)this->ntiles, (uint64_t)std::thread::hardware_concurrency()/2);
 #pragma omp parallel num_threads(num_threads) shared(indexed_tensor)
     for (auto &nnz : base_tensor) {
       uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape);

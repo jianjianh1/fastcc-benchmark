@@ -680,7 +680,7 @@ template <class RES, class RIGHT>
   }
 
   
-template <class RES, class RIGHT>
+template <class AccType, class RES, class RIGHT>
   ListTensor<RES>
   fastcc_multiply(Tensor<RIGHT> &other, CoOrdinate left_contr,
                                  CoOrdinate right_contr, int tile_size = 100) {
@@ -700,7 +700,7 @@ template <class RES, class RIGHT>
                                          .get_coords()
                                          .remove(right_contr)
                                          .get_bounded(other.get_shape_ref());
-    int num_workers = std::thread::hardware_concurrency() / 2;
+    int num_workers = std::thread::hardware_concurrency();
     init_heaps(num_workers);
     tf::Taskflow taskflow;
     tf::Executor executor(num_workers);
@@ -721,12 +721,12 @@ template <class RES, class RIGHT>
     uint64_t left_inner_max = left_indexed->tile_size;
     uint64_t right_inner_max = right_indexed->tile_size;
 
-    std::vector<TileAccumulatorDense<DT>> thread_local_accumulators;
+    std::vector<AccType> thread_local_accumulators;
 
     ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
     for (int _iter = 0; _iter < num_workers; _iter++) {
       thread_local_accumulators.push_back(
-          TileAccumulatorDense<DT>(left_inner_max, right_inner_max, _iter));
+          AccType(left_inner_max, right_inner_max, _iter));
       thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
 
@@ -737,8 +737,7 @@ template <class RES, class RIGHT>
 
         taskflow.emplace([&]() mutable {
           int my_id = executor.this_worker_id();
-          TileAccumulatorDense<DT> &myacc =
-              thread_local_accumulators[my_id];
+          AccType &myacc = thread_local_accumulators[my_id];
           myacc.reset_accumulator(i, j);
           for (const auto &left_entry : left_tile) {
             auto right_entry = right_tile.find(left_entry.first);
@@ -765,8 +764,46 @@ template <class RES, class RIGHT>
     for (int iter = 1; iter < num_workers; iter++) {
       result_tensor.concatenate(thread_local_results[iter]);
     }
-    std::cout<<"Got "<<result_tensor.compute_nnz_count()<<" nonzeros"<<std::endl; //TODO remove before flight
+    //std::cout<<"Got "<<result_tensor.compute_nnz_count()<<" nonzeros"<<std::endl; //TODO remove before flight
     return result_tensor;
+  }
+
+template <class RIGHT>
+  uint64_t
+  total_ht_keys(Tensor<RIGHT> &other, CoOrdinate left_contr,
+               CoOrdinate right_contr, int left_tile_size = 100,
+               int right_tile_size = 100) {
+      uint64_t c_max = this->get_nonzeros()[0].get_coords().gather(left_contr).get_linearized_max();
+    TileIndexedTensor<DT> *left_indexed;
+    TileIndexedTensor<DT> *right_indexed;
+#pragma omp parallel num_threads(2)
+    {
+      omp_set_nested(1);
+      if (omp_get_thread_num() == 0) {
+        left_indexed =
+            new TileIndexedTensor<DT>(*this, left_contr, left_tile_size);
+      } else {
+        right_indexed =
+            new TileIndexedTensor<DT>(other, right_contr, right_tile_size);
+      }
+    }
+    uint64_t left_inner_max = left_indexed->tile_size;
+    std::cout << "Left tile size is " << left_inner_max
+              << ", number of tiles is " << left_indexed->num_tiles()
+              << std::endl;
+    uint64_t right_inner_max = right_indexed->tile_size;
+    std::cout << "Right tile size is " << right_indexed->tile_size
+              << ", number of tiles is " << right_indexed->num_tiles()
+              << std::endl;
+    // Number of queries is TotalActiveC_left(TL) * number of tiles on the right.
+    //uint64_t num_keys = 0;
+    //for(uint64_t tile_iter = 0; tile_iter < left_indexed->num_tiles(); tile_iter++){
+    //    num_keys += left_indexed->num_active_columns(tile_iter);
+    //}
+    //for(uint64_t tile_iter = 0; tile_iter < right_indexed->num_tiles(); tile_iter++){
+    //    num_keys += right_indexed->num_active_columns(tile_iter);
+    //}
+    return left_indexed->num_tiles() + right_indexed->num_tiles();
   }
 
   template <class RIGHT>
