@@ -882,6 +882,115 @@ public:
   }
 };
 
+
+template <class DT, typename bitmask_type> class maskedAccumulator {
+private:
+  DT *data_accumulator;
+  bitmask_type *bitmask;
+  uint64_t *active_positions;
+  uint64_t pos_iter = 0;
+  uint64_t global_count = 0;
+  int num_tiles = 1;
+  uint64_t left_tile_dim = 0;
+  uint64_t right_tile_dim = 0;
+  int left_tile_index = 0;
+  int right_tile_index = 0;
+  int thread_id;
+
+  static const uint64_t n_bits = sizeof(bitmask_type)*8;
+
+public:
+  maskedAccumulator(uint64_t left_tile_dim, uint64_t right_tile_dim, int thread_id = 0)
+      : left_tile_dim(left_tile_dim), right_tile_dim(right_tile_dim), thread_id(thread_id) {
+    uint64_t tile_area = left_tile_dim * right_tile_dim;
+    assert(((right_tile_dim & (right_tile_dim - 1)) == 0));
+    //this->data_accumulator = (DT *)malloc(tile_area * sizeof(DT));
+    this->data_accumulator = (DT *)my_calloc(tile_area, sizeof(DT), thread_id);
+    //this->bitmask = (uint8_t *)malloc((tile_area / 8) + 1);
+
+    uint64_t n_bitmasks = (tile_area-1)/(sizeof(bitmask_type)*8)+1;
+
+    this->bitmask = (bitmask_type *) my_calloc(n_bitmasks,sizeof(bitmask_type),thread_id);
+    //this->bitmask = (uint8_t *)my_calloc((tile_area / 8 + 1), 1, thread_id);
+    //this->active_positions = (uint64_t *)malloc(tile_area * sizeof(uint64_t));
+    this->active_positions = (uint64_t *)my_calloc(n_bitmasks, sizeof(uint64_t), thread_id);
+  }
+  void reset_accumulator(int left_tile_index, int right_tile_index) {
+    this->left_tile_index = left_tile_index;
+    this->right_tile_index = right_tile_index;
+    //int tile_area = left_tile_dim * right_tile_dim;
+    //std::fill(this->data_accumulator, this->data_accumulator + tile_area, DT());
+    //std::fill(this->bitmask, this->bitmask + (tile_area / 8) + 1, 0);
+    //std::fill(this->active_positions, this->active_positions + tile_area, 0);
+  }
+  void update(uint64_t pos, DT val) {
+
+    bitmask_type bitpos = 1ULL << (pos % n_bits);
+    uint64_t bytepos = pos / n_bits;
+
+    bitmask_type read = this->bitmask[bytepos];
+    if (read == 0ULL){
+      active_positions[this->pos_iter++] = bytepos;
+    }
+    
+    if ((read & bitpos) == 0) {
+      
+      this->bitmask[bytepos] |= bitpos;
+    }
+
+    this->data_accumulator[pos] += val;
+  }
+
+
+  template <class TensorType, class BCType>
+  void drain_into(TensorType &result_tensor, BCType& sample_left,
+             BCType& sample_right) {
+    for (int iter = 0; iter < this->pos_iter; iter++) {
+
+      uint64_t active_bitmask_index = active_positions[iter];
+
+      //where do these start?
+      uint64_t starting_dim = active_bitmask_index*n_bits;
+      bitmask_type bits = bitmask[active_bitmask_index];
+
+      while (bits != 0ULL){
+
+        int leader = __builtin_ffsll(bits)-1;
+
+        uint64_t true_index = starting_dim+leader;
+
+        uint64_t i = true_index >> uint64_t(log(right_tile_dim));
+        uint64_t j = true_index & (right_tile_dim - 1);
+
+        uint64_t left_index = this->left_tile_index * left_tile_dim + i;
+        uint64_t right_index = this->right_tile_index * right_tile_dim + j;
+        CompactCordinate this_cord = CompactCordinate(left_index, sample_left, right_index, sample_right, thread_id);
+        //this_cord.concat(sample_right.delinearize(right_index));
+        result_tensor.push_nnz(data_accumulator[true_index],
+                             this_cord);
+        //wipe after write.
+        data_accumulator[true_index] = DT();
+        //XOR out leader
+        bits ^= 1ULL << leader;
+
+
+      }
+
+      //unset data
+      bitmask[active_bitmask_index] = 0;
+      active_positions[iter] = 0;
+
+    }
+    this->global_count += pos_iter;
+    this->pos_iter = 0;
+    this->num_tiles++;
+  }
+  float percentage_saving(){
+      return 1.0 - float(this->global_count)/float(this->num_tiles * this->left_tile_dim * this->right_tile_dim);
+
+  }
+};
+
 template <class DT> class TileAccumulator {
 private:
   DT *data_accumulator;
