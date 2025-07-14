@@ -1,18 +1,17 @@
 This repository contains fast (CPU) kernels for sparse tensor times sparse tensor product.
 
-1. Counting the number of FLOP(s) in sparse N-D tensor contractions with batch indices.
-2. Computing the positions of non-zeros in the result of an N-D sparse tensor contraction.
-3. Computing the output (including the data) of an N-D sparse tensor contraction.
-Python bindings for the above three functions are exported using pybind11, in the file `pybind_wrapper.cpp`.
 
-# Testing
-The `driver.cc` file contains several unit-tests for the above functions.
-It can be compiled using `make all`.
+This is designed to be a header only repository. Please clone with `--recursive` to get the dependencies.
+Once you have the code, just include "contract.hpp" and "read.hpp" headers to use the kernels.
 
-# Exporting Python bindings
-Get taskflow here https://github.com/taskflow/taskflow
-Modify the `tasks.py` file at lines 4 and 10 to point to the path to taskflow on your system.
-Follow the steps here: https://realpython.com/python-bindings-overview/#pybind11
-1. Install pybind11 using pip: `pip install pybind11`
-2. Run `invoke`, and check to see that a shared object with the name `sparse_opcnt` is generated.
 
+To run `result(i, j, k) = a(i, c0, j, c1) * b(k, c0, c1)` in double precision, use the following code:
+
+```
+Tensor<double> a("a.tns");
+Tensor<double> b("b.tns");
+ListTensor<double> result = a.fastcc_multiply<TileAccumulator<double>, double>(b, {1, 3}, {1, 2});
+```
+
+
+See https://github.com/HPCRL/sparse_benchmark/blob/master/sc_ae_speedups.cc for more usage examples.
