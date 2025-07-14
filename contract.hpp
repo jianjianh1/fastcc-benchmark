@@ -4,7 +4,6 @@
 #include "coordinate.hpp"
 #include "taskflow.hpp"
 #include "timer.hpp"
-#include "types.hpp"
 #include "index_tensors.hpp"
 #include <algorithm>
 #include <ankerl/unordered_dense.h>
@@ -335,18 +334,7 @@ public:
             OutputCoordinate output_coords =
                 OutputCoordinate(batch_coords, left_external, right_external);
             RES outp;
-            if constexpr (std::is_same<DT, densevec>() &&
-                          std::is_same<RIGHT, densevec>() &&
-                          std::is_same<RES, densemat>()) {
-              outp = left_ev.second.densevec::outer(right_ev.second);
-            } else if constexpr (std::is_same<DT, densemat>() &&
-                                 std::is_same<RIGHT, densemat>() &&
-                                 std::is_same<RES, double>()) {
-              outp = left_ev.second.mult_reduce(right_ev.second);
-
-            } else {
-              outp = left_ev.second * right_ev.second;
-            }
+            outp = left_ev.second * right_ev.second;
             auto result_ref = result.find(output_coords);
             counter++;
             if (result_ref != result.end()) {
@@ -1259,18 +1247,7 @@ template <class RES, class RIGHT>
             DT left_val = left_nnz.second;
             RIGHT right_val = right_nnz.second;
             RES outp;
-            if constexpr (std::is_same<DT, densevec>() &&
-                          std::is_same<RIGHT, densevec>() &&
-                          std::is_same<RES, densemat>()) {
-              outp = left_val.densevec::outer(right_val);
-            } else if constexpr (std::is_same<DT, densemat>() &&
-                                 std::is_same<RIGHT, densemat>() &&
-                                 std::is_same<RES, double>()) {
-              outp = left_val.mult_reduce(right_val);
-
-            } else {
-              outp = left_val * right_val;
-            }
+            outp = left_val * right_val;
             result.update_last_row(right_ext_cordinate, outp);
           }
         }
@@ -1348,18 +1325,7 @@ template <class RES, class RIGHT>
             DT left_val = left_nnz.second;
             RIGHT right_val = right_nnz.second;
             RES outp;
-            if constexpr (std::is_same<DT, densevec>() &&
-                          std::is_same<RIGHT, densevec>() &&
-                          std::is_same<RES, densemat>()) {
-              outp = left_val.densevec::outer(right_val);
-            } else if constexpr (std::is_same<DT, densemat>() &&
-                                 std::is_same<RIGHT, densemat>() &&
-                                 std::is_same<RES, double>()) {
-              outp = left_val.mult_reduce(right_val);
-
-            } else {
-              outp = left_val * right_val;
-            }
+            outp = left_val * right_val;
             result.update_last_row(right_nnz.first, outp);
           }
         }
@@ -1567,18 +1533,7 @@ template <class RES, class RIGHT>
               DT left_val = left_nnz.second;
               RIGHT right_val = right_nnz.second;
               RES outp;
-              if constexpr (std::is_same<DT, densevec>() &&
-                            std::is_same<RIGHT, densevec>() &&
-                            std::is_same<RES, densemat>()) {
-                outp = left_val.densevec::outer(right_val);
-              } else if constexpr (std::is_same<DT, densemat>() &&
-                                   std::is_same<RIGHT, densemat>() &&
-                                   std::is_same<RES, double>()) {
-                outp = left_val.mult_reduce(right_val);
-
-              } else {
-                outp = left_val * right_val;
-              }
+              outp = left_val * right_val;
               result.update_last_row(right_ext_cordinate, outp);
             }
           }
