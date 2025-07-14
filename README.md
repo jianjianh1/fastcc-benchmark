@@ -1,8 +1,8 @@
-This repository contains fast kernels for:
+This repository contains fast (CPU) kernels for sparse tensor times sparse tensor product.
+
 1. Counting the number of FLOP(s) in sparse N-D tensor contractions with batch indices.
 2. Computing the positions of non-zeros in the result of an N-D sparse tensor contraction.
 3. Computing the output (including the data) of an N-D sparse tensor contraction.
-It supports various data-types for the N-D sparse tensors. They can be block matrices, vectors or scalars.
 Python bindings for the above three functions are exported using pybind11, in the file `pybind_wrapper.cpp`.
 
 # Testing
