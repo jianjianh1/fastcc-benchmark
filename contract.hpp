@@ -688,6 +688,9 @@ template <class AccType, class RES, class RIGHT>
                                          .get_coords()
                                          .remove(right_contr)
                                          .get_bounded(other.get_shape_ref());
+    if(tile_size & (tile_size - 1)){
+        tile_size = make_next_power_of_two(tile_size);
+    }
     int num_workers = std::thread::hardware_concurrency();
     init_heaps(num_workers);
     tf::Taskflow taskflow;
