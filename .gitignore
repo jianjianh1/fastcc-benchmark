@@ -1,0 +1,90 @@
+# Build and binary artifacts
+/build/
+/bin/
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.out
+*.a
+*.lib
+*.pyc
+*.pyo
+*.pyd
+*.class
+*.jar
+*.war
+*.ear
+*.swp
+*.swo
+*.swn
+*.tmp
+*.log
+*.cache
+*.bak
+*.old
+*.core
+*.dSYM/
+*.ipynb_checkpoints
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+Testing/
+CTestTestfile.cmake
+CMakeScripts/
+
+# Conan
+conanbuildinfo.*
+conaninfo.txt
+conanfile.lock
+
+# VSCode
+.vscode/
+
+# Python virtualenv
+venv/
+.env/
+__pycache__/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Misc
+*.DS_Store
+*.idea/
+*.vscode/
+*.settings/
+*.project
+*.sublime-workspace
+*.sublime-project
+*.coverage
+*.mypy_cache/
+*.pytest_cache/
+
+# Third-party and test data
+thirdparty/
+test/
+bench/*.txt
+bench/*.png
+bench/*.out
+bench/*.log
+
+# Abseil and emhash build artifacts
+abseil-cpp/build/
+emhash/build/
+unordered_dense/build/
+
+# Ignore generated files
+*.generated.*
+
+# Ignore specific files
+*.gz
+*.tar
+fastcc_test_tensors/
+*.txt
+!CMakeLists.txt
