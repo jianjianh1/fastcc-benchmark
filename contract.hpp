@@ -698,7 +698,7 @@ template <class AccType, class RES, class RIGHT>
 
     TileIndexedTensor<DT>* left_indexed = nullptr;
     TileIndexedTensor<DT>* right_indexed = nullptr;
-    // omp_set_nested(1);
+    omp_set_nested(1);
 
     // -- 1. create hash tables for input tensors --
     auto stage_1_start = std::chrono::high_resolution_clock::now();
