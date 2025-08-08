@@ -693,12 +693,12 @@ template <class AccType, class RES, class RIGHT>
     }
     int num_workers = std::thread::hardware_concurrency();
     init_heaps(num_workers);
-    tf::Taskflow taskflow;
-    tf::Executor executor(num_workers);
+    // tf::Taskflow taskflow;
+    // tf::Executor executor(num_workers);
 
     TileIndexedTensor<DT>* left_indexed = nullptr;
     TileIndexedTensor<DT>* right_indexed = nullptr;
-    omp_set_nested(1);
+    // omp_set_nested(1);
 
     // -- 1. create hash tables for input tensors --
     auto stage_1_start = std::chrono::high_resolution_clock::now();
@@ -749,6 +749,8 @@ template <class AccType, class RES, class RIGHT>
 
     auto stage_3_start = std::chrono::high_resolution_clock::now();
     tile_index_start = std::chrono::high_resolution_clock::now();
+
+    #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
     for (int i = 0; i < left_indexed->num_tiles(); i++){
       for (int j = 0; j < right_indexed->num_tiles(); j++){
           auto &left_tile = left_indexed->indexed_tensor[i];
@@ -757,8 +759,7 @@ template <class AccType, class RES, class RIGHT>
           tile_index_end = std::chrono::high_resolution_clock::now();
           tile_index_time += std::chrono::duration_cast<std::chrono::milliseconds>(tile_index_end - tile_index_start);
 
-        taskflow.emplace([&]() mutable {
-          int my_id = executor.this_worker_id();
+          int my_id = omp_get_thread_num();
           AccType &myacc = thread_local_accumulators[my_id];
           myacc.reset_accumulator(i, j);
 
@@ -804,17 +805,10 @@ template <class AccType, class RES, class RIGHT>
           thread_local_drain_time[my_id] += drain_time;
 
           thread_local_total_time[my_id] += (hash_time + acc_time + drain_time);
-        });
-      }
-      tile_index_start = std::chrono::high_resolution_clock::now();
-    }
 
-    auto wall_start = std::chrono::high_resolution_clock::now();
-    executor.run(taskflow).wait();
-    auto wall_end = std::chrono::high_resolution_clock::now();
-    auto wall_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(wall_end - wall_start)
-            .count();
+          tile_index_start = std::chrono::high_resolution_clock::now();
+      }
+    }
 
     auto stage_3_end = std::chrono::high_resolution_clock::now();
     auto stage_3_time =
@@ -829,8 +823,6 @@ template <class AccType, class RES, class RIGHT>
     }
 
     std::cout << "Tile indexing time: " << tile_index_time.count() << " ms" << std::endl;
-
-    std::cout << "Wait time to synchronize all threads: " << wall_time << " ms" << std::endl;
 
     std::cout << "Time taken to compute all tiles: " << stage_3_time << " ms" << std::endl;
 
