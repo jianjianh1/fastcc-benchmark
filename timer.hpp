@@ -113,6 +113,10 @@ static void init_heaps(int num_threads){
     tlocal_heaps = new ManagedHeap[num_threads];
 }
 
+static void free_heaps(){
+    delete[] tlocal_heaps;
+}
+
 static void *my_calloc(uint64_t num_elts, uint64_t size_per_elt, int thread_id) {
         return tlocal_heaps[thread_id].alloc(num_elts * size_per_elt);
 }

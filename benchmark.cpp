@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <chrono>
+#include <algorithm>
 
 #include "contract.hpp"
 #include "read.hpp"
@@ -41,31 +42,83 @@ int main(int argc, char* argv[]) {
 
     // Benchmark function
     auto make_a_run = [](Tensor<double> &some_tensor, std::string exp_name,
-                        CoOrdinate contr, int tile_size, bool dense) -> double {
+                        CoOrdinate contr, int tile_size, bool dense, int iters) -> std::vector<long long> {
         std::cout << "Experiment: " << exp_name << std::endl;
         some_tensor._infer_dimensionality();
         some_tensor._infer_shape();
-        auto t1 = std::chrono::high_resolution_clock::now();
+        
+        std::vector<long long> hash_create_times;
+        std::vector<long long> compute_times;
+        std::vector<long long> accumulate_times;
+        std::vector<long long> drain_times;
+        std::vector<long long> indexing_times;
+        std::vector<long long> total_times;
+
         if (dense) {
-            ListTensor<double> result =
-                some_tensor.fastcc_multiply<TileAccumulator<double>, double, double>(
+            for (int i = 0; i < iters; i++) {
+                auto timings =
+                    some_tensor.fastcc_multiply_timing<TileAccumulator<double>, double, double>(
+                        some_tensor, contr, contr, tile_size);
+                hash_create_times.push_back(timings[0]);
+                compute_times.push_back(timings[1]);
+                accumulate_times.push_back(timings[2]);
+                drain_times.push_back(timings[3]);
+                indexing_times.push_back(timings[4]);
+
+                auto start = std::chrono::high_resolution_clock::now();
+                auto result = some_tensor.fastcc_multiply<TileAccumulator<double>, double, double>(
                     some_tensor, contr, contr, tile_size);
-            std::cout << "Result NNZ count: " << result.compute_nnz_count() << std::endl;
+                auto end = std::chrono::high_resolution_clock::now();
+                long long total_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+                total_times.push_back(total_time);
+            }
         } else {
-            ListTensor<double> result =
-                some_tensor.fastcc_multiply<TileAccumulatorMap<double>, double, double>(
+            for (int i = 0; i < iters; i++) {
+                auto timings =
+                    some_tensor.fastcc_multiply_timing<TileAccumulatorMap<double>, double, double>(
+                        some_tensor, contr, contr, tile_size);
+                hash_create_times.push_back(timings[0]);
+                compute_times.push_back(timings[1]);
+                accumulate_times.push_back(timings[2]);
+                drain_times.push_back(timings[3]);
+                indexing_times.push_back(timings[4]);
+
+                auto start = std::chrono::high_resolution_clock::now();
+                auto result = some_tensor.fastcc_multiply<TileAccumulatorMap<double>, double, double>(
                     some_tensor, contr, contr, tile_size);
-            std::cout << "Result NNZ count: " << result.compute_nnz_count() << std::endl;
+                auto end = std::chrono::high_resolution_clock::now();
+                long long total_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+                total_times.push_back(total_time);
+            }
         }
-        auto t2 = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> time_span =
-            std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);
-        std::cout << "Elapsed: " << time_span.count() << " seconds" << std::endl;
-        return time_span.count();
+
+        std::nth_element(hash_create_times.begin(), hash_create_times.begin() + hash_create_times.size() / 2, hash_create_times.end());
+        std::nth_element(compute_times.begin(), compute_times.begin() + compute_times.size() / 2, compute_times.end());
+        std::nth_element(accumulate_times.begin(), accumulate_times.begin() + accumulate_times.size() / 2, accumulate_times.end());
+        std::nth_element(drain_times.begin(), drain_times.begin() + drain_times.size() / 2, drain_times.end());
+        std::nth_element(indexing_times.begin(), indexing_times.begin() + indexing_times.size() / 2, indexing_times.end());
+        std::nth_element(total_times.begin(), total_times.begin() + total_times.size() / 2, total_times.end());
+
+        std::vector<long long> median_times = {
+            hash_create_times[hash_create_times.size() / 2],
+            compute_times[compute_times.size() / 2],
+            accumulate_times[accumulate_times.size() / 2],
+            drain_times[drain_times.size() / 2],
+            indexing_times[indexing_times.size() / 2],
+            total_times[total_times.size() / 2]
+        };
+
+        return median_times;
     };
 
-    // Run benchmark
-    double elapsed = make_a_run(a, tensor_file + mode + (dense ? "_dense" : "_sparse"), contr, tile_size, dense);
-    std::cout << "Total time: " << elapsed << " seconds" << std::endl;
+    // Run the benchmark
+    std::vector<long long> median_times = make_a_run(a, tensor_file + "_" + mode + "_" + std::to_string(tile_size) + (dense ? "_dense" : "_sparse"), contr, tile_size, dense, 3);
+    std::cout << "Hash create time: " << median_times[0] << " us" << std::endl;
+    std::cout << "Compute time: " << median_times[1] << " us" << std::endl;
+    std::cout << "Accumulate time: " << median_times[2] << " us" << std::endl;
+    std::cout << "Drain time: " << median_times[3] << " us" << std::endl;
+    std::cout << "Indexing time: " << median_times[4] << " us" << std::endl;
+    std::cout << "Total time: " << median_times[5] << " us" << std::endl;
+
     return 0;
 }
