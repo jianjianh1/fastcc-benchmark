@@ -690,23 +690,17 @@ template <class AccType, class RES, class RIGHT>
     if(tile_size & (tile_size - 1)){
         tile_size = make_next_power_of_two(tile_size);
     }
-    int num_workers = std::thread::hardware_concurrency();
+    int num_workers = 1;
     init_heaps(num_workers);
 
     TileIndexedTensor<DT>* left_indexed = nullptr;
     TileIndexedTensor<DT>* right_indexed = nullptr;
-    omp_set_nested(1);
 
     auto hash_create_start = std::chrono::high_resolution_clock::now();
-#pragma omp parallel num_threads(2)
-    {
-        if(omp_get_thread_num() == 0){
-            left_indexed = new TileIndexedTensor<DT>(*this, left_contr, tile_size);
-        }
-        else{
-            right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
-        }
-    }
+
+    left_indexed = new TileIndexedTensor<DT>(*this, left_contr, tile_size);
+    right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
+
     auto hash_create_end = std::chrono::high_resolution_clock::now();
     auto hash_create_time = std::chrono::duration_cast<std::chrono::microseconds>(hash_create_end - hash_create_start).count();
 
@@ -723,14 +717,12 @@ template <class AccType, class RES, class RIGHT>
     }
 
     auto compute_start = std::chrono::high_resolution_clock::now();
-    #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
     for (int i = 0; i < left_indexed->num_tiles(); i++){
       for (int j = 0; j < right_indexed->num_tiles(); j++){
           auto &left_tile = left_indexed->indexed_tensor[i];
           auto &right_tile = right_indexed->indexed_tensor[j];
 
-          int my_id = omp_get_thread_num();
-          AccType &myacc = thread_local_accumulators[my_id];
+          AccType &myacc = thread_local_accumulators[0];
           myacc.reset_accumulator(i, j);
 
           for (const auto &left_entry : left_tile) {
@@ -748,7 +740,7 @@ template <class AccType, class RES, class RIGHT>
             }
           }
 
-          myacc.drain_into(thread_local_results[my_id],
+          myacc.drain_into(thread_local_results[0],
                            sample_left, sample_right);
       }
     }
@@ -763,29 +755,26 @@ template <class AccType, class RES, class RIGHT>
               << std::endl;
 
 
-    auto drain_start = std::chrono::high_resolution_clock::now();
-    #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
-    for (int i = 0; i < left_indexed->num_tiles(); i++){
-      for (int j = 0; j < right_indexed->num_tiles(); j++){
-          auto &left_tile = left_indexed->indexed_tensor[0];
-          auto &right_tile = right_indexed->indexed_tensor[0];
+    // auto drain_start = std::chrono::high_resolution_clock::now();
+    // for (int i = 0; i < left_indexed->num_tiles(); i++){
+    //   for (int j = 0; j < right_indexed->num_tiles(); j++){
+    //       auto &left_tile = left_indexed->indexed_tensor[0];
+    //       auto &right_tile = right_indexed->indexed_tensor[0];
 
-          int my_id = omp_get_thread_num();
-          AccType &myacc = thread_local_accumulators[my_id];
+    //       AccType &myacc = thread_local_accumulators[0];
 
-          myacc.drain_into(thread_local_results[my_id],
-                           sample_left, sample_right);
-      }
-    }
-    auto drain_end = std::chrono::high_resolution_clock::now();
-    auto drain_time = std::chrono::duration_cast<std::chrono::microseconds>(drain_end - drain_start).count();
+    //       myacc.drain_into(thread_local_results[0],
+    //                        sample_left, sample_right);
+    //   }
+    // }
+    // auto drain_end = std::chrono::high_resolution_clock::now();
+    // auto drain_time = std::chrono::duration_cast<std::chrono::microseconds>(drain_end - drain_start).count();
 
 
     auto indexing_start = std::chrono::high_resolution_clock::now();
-    #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
     for (int i = 0; i < left_indexed->num_tiles(); i++){
       for (int j = 0; j < right_indexed->num_tiles(); j++){
-          volatile int dummy = 0;
+          volatile RES dummy = 0;
           auto &left_tile = left_indexed->indexed_tensor[i];
           auto &right_tile = right_indexed->indexed_tensor[j];
 
@@ -796,7 +785,8 @@ template <class AccType, class RES, class RIGHT>
                    left_entry.second) { // loop over (e_l, nnz_l): external
                                         // left, nnz at that external left.
                 for (auto &right_ev : right_entry->second) {
-                  dummy = dummy + 1; // prevent compiler from optimizing this loop
+                  dummy = dummy + left_ev.second * right_ev.second ; // prevent compiler from optimizing this loop
+                  
                 }
               }
             }
@@ -809,8 +799,6 @@ template <class AccType, class RES, class RIGHT>
     std::vector<long long> timings;
     timings.push_back(hash_create_time);
     timings.push_back(compute_time);
-    timings.push_back(drain_time);
-    timings.push_back(compute_time - drain_time - indexing_time);
     timings.push_back(indexing_time);
 
     delete left_indexed;

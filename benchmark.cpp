@@ -49,8 +49,6 @@ int main(int argc, char* argv[]) {
         
         std::vector<long long> hash_create_times;
         std::vector<long long> compute_times;
-        std::vector<long long> accumulate_times;
-        std::vector<long long> drain_times;
         std::vector<long long> indexing_times;
         std::vector<long long> total_times;
 
@@ -61,9 +59,7 @@ int main(int argc, char* argv[]) {
                         some_tensor, contr, contr, tile_size);
                 hash_create_times.push_back(timings[0]);
                 compute_times.push_back(timings[1]);
-                accumulate_times.push_back(timings[2]);
-                drain_times.push_back(timings[3]);
-                indexing_times.push_back(timings[4]);
+                indexing_times.push_back(timings[2]);
 
                 auto start = std::chrono::high_resolution_clock::now();
                 auto result = some_tensor.fastcc_multiply<TileAccumulator<double>, double, double>(
@@ -79,9 +75,7 @@ int main(int argc, char* argv[]) {
                         some_tensor, contr, contr, tile_size);
                 hash_create_times.push_back(timings[0]);
                 compute_times.push_back(timings[1]);
-                accumulate_times.push_back(timings[2]);
-                drain_times.push_back(timings[3]);
-                indexing_times.push_back(timings[4]);
+                indexing_times.push_back(timings[2]);
 
                 auto start = std::chrono::high_resolution_clock::now();
                 auto result = some_tensor.fastcc_multiply<TileAccumulatorMap<double>, double, double>(
@@ -94,16 +88,12 @@ int main(int argc, char* argv[]) {
 
         std::nth_element(hash_create_times.begin(), hash_create_times.begin() + hash_create_times.size() / 2, hash_create_times.end());
         std::nth_element(compute_times.begin(), compute_times.begin() + compute_times.size() / 2, compute_times.end());
-        std::nth_element(accumulate_times.begin(), accumulate_times.begin() + accumulate_times.size() / 2, accumulate_times.end());
-        std::nth_element(drain_times.begin(), drain_times.begin() + drain_times.size() / 2, drain_times.end());
         std::nth_element(indexing_times.begin(), indexing_times.begin() + indexing_times.size() / 2, indexing_times.end());
         std::nth_element(total_times.begin(), total_times.begin() + total_times.size() / 2, total_times.end());
 
         std::vector<long long> median_times = {
             hash_create_times[hash_create_times.size() / 2],
             compute_times[compute_times.size() / 2],
-            accumulate_times[accumulate_times.size() / 2],
-            drain_times[drain_times.size() / 2],
             indexing_times[indexing_times.size() / 2],
             total_times[total_times.size() / 2]
         };
@@ -112,13 +102,11 @@ int main(int argc, char* argv[]) {
     };
 
     // Run the benchmark
-    std::vector<long long> median_times = make_a_run(a, tensor_file + "_" + mode + "_" + std::to_string(tile_size) + (dense ? "_dense" : "_sparse"), contr, tile_size, dense, 3);
+    std::vector<long long> median_times = make_a_run(a, tensor_file + "_" + mode + "_" + std::to_string(tile_size) + (dense ? "_dense" : "_sparse"), contr, tile_size, dense, 1);
     std::cout << "Hash create time: " << median_times[0] << " us" << std::endl;
     std::cout << "Compute time: " << median_times[1] << " us" << std::endl;
-    std::cout << "Accumulate time: " << median_times[2] << " us" << std::endl;
-    std::cout << "Drain time: " << median_times[3] << " us" << std::endl;
-    std::cout << "Indexing time: " << median_times[4] << " us" << std::endl;
-    std::cout << "Total time: " << median_times[5] << " us" << std::endl;
+    std::cout << "Indexing time: " << median_times[2] << " us" << std::endl;
+    std::cout << "Total time: " << median_times[3] << " us" << std::endl;
 
     return 0;
 }

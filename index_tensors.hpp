@@ -526,13 +526,11 @@ public:
     for(int i = 0; i < this->ntiles; i++){
         indexed_tensor[i] = middle_map();
     }
-    int num_threads = std::min((uint64_t)this->ntiles, (uint64_t)std::thread::hardware_concurrency()/2);
-#pragma omp parallel num_threads(num_threads) shared(indexed_tensor)
+
     for (auto &nnz : base_tensor) {
       uint64_t remaining = nnz.get_coords().remove_linearize(index_coords, removed_shape);
       uint64_t tile = remaining / this->tile_size;
-      if (tile % num_threads != omp_get_thread_num())
-          continue;
+
       uint64_t contraction_index = nnz.get_coords().gather_linearize(index_coords);
       uint64_t inner = remaining % this->tile_size;
       DT data = nnz.get_data();
