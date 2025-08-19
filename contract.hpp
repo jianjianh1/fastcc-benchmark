@@ -667,6 +667,159 @@ template <class RES, class RIGHT>
     return result_tensor;
   }
 
+template <class AccType, class RES, class RIGHT>
+  std::vector<long long>
+  fastcc_multiply_timing(Tensor<RIGHT> &other, CoOrdinate left_contr,
+                                 CoOrdinate right_contr, int tile_size = 100) {
+    // for l_T
+    //   for r_T
+    //      for c
+    //         for T_r
+    //             for T_l
+    int result_dimensionality =
+        this->get_dimensionality() + other.get_dimensionality() -
+        (left_contr.get_dimensionality() + right_contr.get_dimensionality());
+    BoundedCoordinate sample_left = this->nonzeros[0]
+                                      .get_coords()
+                                      .remove(left_contr)
+                                      .get_bounded(this->get_shape_ref());
+    BoundedCoordinate sample_right = other.nonzeros[0]
+                                         .get_coords()
+                                         .remove(right_contr)
+                                         .get_bounded(other.get_shape_ref());
+    if(tile_size & (tile_size - 1)){
+        tile_size = make_next_power_of_two(tile_size);
+    }
+    int num_workers = std::thread::hardware_concurrency();
+    init_heaps(num_workers);
+
+    TileIndexedTensor<DT>* left_indexed = nullptr;
+    TileIndexedTensor<DT>* right_indexed = nullptr;
+    omp_set_nested(1);
+
+    auto hash_create_start = std::chrono::high_resolution_clock::now();
+#pragma omp parallel num_threads(2)
+    {
+        if(omp_get_thread_num() == 0){
+            left_indexed = new TileIndexedTensor<DT>(*this, left_contr, tile_size);
+        }
+        else{
+            right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
+        }
+    }
+    auto hash_create_end = std::chrono::high_resolution_clock::now();
+    auto hash_create_time = std::chrono::duration_cast<std::chrono::microseconds>(hash_create_end - hash_create_start).count();
+
+    uint64_t left_inner_max = left_indexed->tile_size;
+    uint64_t right_inner_max = right_indexed->tile_size;
+
+    std::vector<AccType> thread_local_accumulators;
+
+    ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
+    for (int _iter = 0; _iter < num_workers; _iter++) {
+      thread_local_accumulators.push_back(
+          AccType(left_inner_max, right_inner_max, _iter));
+      thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
+    }
+
+    auto compute_start = std::chrono::high_resolution_clock::now();
+    #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
+    for (int i = 0; i < left_indexed->num_tiles(); i++){
+      for (int j = 0; j < right_indexed->num_tiles(); j++){
+          auto &left_tile = left_indexed->indexed_tensor[i];
+          auto &right_tile = right_indexed->indexed_tensor[j];
+
+          int my_id = omp_get_thread_num();
+          AccType &myacc = thread_local_accumulators[my_id];
+          myacc.reset_accumulator(i, j);
+
+          for (const auto &left_entry : left_tile) {
+            auto right_entry = right_tile.find(left_entry.first);
+            if (right_entry != right_tile.end()) {
+              for (auto &left_ev :
+                   left_entry.second) { // loop over (e_l, nnz_l): external
+                                        // left, nnz at that external left.
+                for (auto &right_ev : right_entry->second) {
+                  uint64_t co_ordinate =
+                      left_ev.first * right_inner_max + right_ev.first;
+                  myacc.update(co_ordinate, left_ev.second * right_ev.second);
+                }
+              }
+            }
+          }
+
+          myacc.drain_into(thread_local_results[my_id],
+                           sample_left, sample_right);
+      }
+    }
+    auto compute_end = std::chrono::high_resolution_clock::now();
+    auto compute_time = std::chrono::duration_cast<std::chrono::microseconds>(compute_end - compute_start).count();
+
+    ListTensor<RES>& result_tensor = thread_local_results[0];
+    for (int iter = 1; iter < num_workers; iter++) {
+      result_tensor.concatenate(thread_local_results[iter]);
+    }
+    std::cout << "Got " << result_tensor.compute_nnz_count() << " nonzeros"
+              << std::endl;
+
+
+    auto drain_start = std::chrono::high_resolution_clock::now();
+    #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
+    for (int i = 0; i < left_indexed->num_tiles(); i++){
+      for (int j = 0; j < right_indexed->num_tiles(); j++){
+          auto &left_tile = left_indexed->indexed_tensor[0];
+          auto &right_tile = right_indexed->indexed_tensor[0];
+
+          int my_id = omp_get_thread_num();
+          AccType &myacc = thread_local_accumulators[my_id];
+
+          myacc.drain_into(thread_local_results[my_id],
+                           sample_left, sample_right);
+      }
+    }
+    auto drain_end = std::chrono::high_resolution_clock::now();
+    auto drain_time = std::chrono::duration_cast<std::chrono::microseconds>(drain_end - drain_start).count();
+
+
+    auto indexing_start = std::chrono::high_resolution_clock::now();
+    #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
+    for (int i = 0; i < left_indexed->num_tiles(); i++){
+      for (int j = 0; j < right_indexed->num_tiles(); j++){
+          volatile int dummy = 0;
+          auto &left_tile = left_indexed->indexed_tensor[i];
+          auto &right_tile = right_indexed->indexed_tensor[j];
+
+          for (const auto &left_entry : left_tile) {
+            auto right_entry = right_tile.find(left_entry.first);
+            if (right_entry != right_tile.end()) {
+              for (auto &left_ev :
+                   left_entry.second) { // loop over (e_l, nnz_l): external
+                                        // left, nnz at that external left.
+                for (auto &right_ev : right_entry->second) {
+                  dummy = dummy + 1; // prevent compiler from optimizing this loop
+                }
+              }
+            }
+          }
+      }
+    }
+    auto indexing_end = std::chrono::high_resolution_clock::now();
+    auto indexing_time = std::chrono::duration_cast<std::chrono::microseconds>(indexing_end - indexing_start).count();
+
+    std::vector<long long> timings;
+    timings.push_back(hash_create_time);
+    timings.push_back(compute_time);
+    timings.push_back(drain_time);
+    timings.push_back(compute_time - drain_time - indexing_time);
+    timings.push_back(indexing_time);
+
+    delete left_indexed;
+    delete right_indexed;
+    delete thread_local_results;
+    free_heaps();
+
+    return timings;
+  }
   
 template <class AccType, class RES, class RIGHT>
   ListTensor<RES>
@@ -693,15 +846,11 @@ template <class AccType, class RES, class RIGHT>
     }
     int num_workers = std::thread::hardware_concurrency();
     init_heaps(num_workers);
-    // tf::Taskflow taskflow;
-    // tf::Executor executor(num_workers);
 
     TileIndexedTensor<DT>* left_indexed = nullptr;
     TileIndexedTensor<DT>* right_indexed = nullptr;
     omp_set_nested(1);
 
-    // -- 1. create hash tables for input tensors --
-    auto stage_1_start = std::chrono::high_resolution_clock::now();
 #pragma omp parallel num_threads(2)
     {
         if(omp_get_thread_num() == 0){
@@ -711,18 +860,10 @@ template <class AccType, class RES, class RIGHT>
             right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
         }
     }
-    auto stage_1_end = std::chrono::high_resolution_clock::now();
-    auto stage_1_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(stage_1_end - stage_1_start)
-            .count();
-    std::cout << "Time taken to create hash tables for input tensors: " << stage_1_time << " ms" << std::endl;
-    // -- 1 end --
 
     uint64_t left_inner_max = left_indexed->tile_size;
     uint64_t right_inner_max = right_indexed->tile_size;
 
-    // -- 2. create thread local accumulators and result tensors --
-    auto stage_2_start = std::chrono::high_resolution_clock::now();
     std::vector<AccType> thread_local_accumulators;
 
     ListTensor<RES>* thread_local_results = (ListTensor<RES>*) malloc(num_workers * sizeof(ListTensor<RES>));
@@ -731,24 +872,6 @@ template <class AccType, class RES, class RIGHT>
           AccType(left_inner_max, right_inner_max, _iter));
       thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
-    auto stage_2_end = std::chrono::high_resolution_clock::now();
-    auto stage_2_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(stage_2_end - stage_2_start)
-            .count();
-    std::cout << "Time taken to create thread local accumulators: " << stage_2_time << " ms" << std::endl;
-    // -- 2 end --
-
-    // -- 3. create tasks: each task index a tile from left, a tile from right, and index the right elements and multiply, then update the thread local accumulator --
-    std::chrono::milliseconds thread_local_hash_time[num_workers] {};
-    std::chrono::milliseconds thread_local_accumulate_time[num_workers] {};
-    std::chrono::milliseconds thread_local_drain_time[num_workers] {};
-    std::chrono::milliseconds thread_local_total_time[num_workers] {};
-
-    std::chrono::milliseconds tile_index_time(0);
-    std::chrono::high_resolution_clock::time_point tile_index_start, tile_index_end;
-
-    auto stage_3_start = std::chrono::high_resolution_clock::now();
-    tile_index_start = std::chrono::high_resolution_clock::now();
 
     #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
     for (int i = 0; i < left_indexed->num_tiles(); i++){
@@ -756,25 +879,12 @@ template <class AccType, class RES, class RIGHT>
           auto &left_tile = left_indexed->indexed_tensor[i];
           auto &right_tile = right_indexed->indexed_tensor[j];
 
-          tile_index_end = std::chrono::high_resolution_clock::now();
-          tile_index_time += std::chrono::duration_cast<std::chrono::milliseconds>(tile_index_end - tile_index_start);
-
           int my_id = omp_get_thread_num();
           AccType &myacc = thread_local_accumulators[my_id];
           myacc.reset_accumulator(i, j);
 
-          std::chrono::high_resolution_clock::time_point hash_start, hash_end, acc_start, acc_end, drain_start, drain_end;
-          std::chrono::milliseconds hash_time(0), acc_time(0), drain_time(0);
-          // -- 3.1 index left and right tile --
-          hash_start = std::chrono::high_resolution_clock::now();
           for (const auto &left_entry : left_tile) {
             auto right_entry = right_tile.find(left_entry.first);
-            hash_end = std::chrono::high_resolution_clock::now();
-            hash_time += std::chrono::duration_cast<std::chrono::milliseconds>(hash_end - hash_start);
-            // -- 3.1 end --
-
-            // -- 3.2 multiply and update accumulator --
-            acc_start = std::chrono::high_resolution_clock::now();
             if (right_entry != right_tile.end()) {
               for (auto &left_ev :
                    left_entry.second) { // loop over (e_l, nnz_l): external
@@ -786,60 +896,17 @@ template <class AccType, class RES, class RIGHT>
                 }
               }
             }
-            // -- 3.2 end --
-            acc_end = std::chrono::high_resolution_clock::now();
-            acc_time += std::chrono::duration_cast<std::chrono::milliseconds>(acc_end - acc_start);
-
-            hash_start = std::chrono::high_resolution_clock::now();
           }
 
-          // -- 3.3 drain accumulator to thread local result tensor --
-          drain_start = std::chrono::high_resolution_clock::now();
           myacc.drain_into(thread_local_results[my_id],
                            sample_left, sample_right);
-          drain_end = std::chrono::high_resolution_clock::now();
-          drain_time += std::chrono::duration_cast<std::chrono::milliseconds>(drain_end - drain_start);
-
-          thread_local_hash_time[my_id] += hash_time;
-          thread_local_accumulate_time[my_id] += acc_time;
-          thread_local_drain_time[my_id] += drain_time;
-
-          thread_local_total_time[my_id] += (hash_time + acc_time + drain_time);
-
-          tile_index_start = std::chrono::high_resolution_clock::now();
       }
     }
 
-    auto stage_3_end = std::chrono::high_resolution_clock::now();
-    auto stage_3_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(stage_3_end - stage_3_start)
-            .count();
-
-    for(int i = 0; i < num_workers; i++){
-        std::cout << "Thread " << i << " hash time: " << thread_local_hash_time[i].count() << " ms" << std::endl;
-        std::cout << "Thread " << i << " accumulate time: " << thread_local_accumulate_time[i].count() << " ms" << std::endl;
-        std::cout << "Thread " << i << " drain time: " << thread_local_drain_time[i].count() << " ms" << std::endl;
-        std::cout << "Thread " << i << " total time: " << thread_local_total_time[i].count() << " ms" << std::endl;
-    }
-
-    std::cout << "Tile indexing time: " << tile_index_time.count() << " ms" << std::endl;
-
-    std::cout << "Time taken to compute all tiles: " << stage_3_time << " ms" << std::endl;
-
-    // -- 3 end --
-
-    // -- 4. merge thread local results --
-    auto stage_4_start = std::chrono::high_resolution_clock::now();
     ListTensor<RES>& result_tensor = thread_local_results[0];
     for (int iter = 1; iter < num_workers; iter++) {
       result_tensor.concatenate(thread_local_results[iter]);
     }
-    auto stage_4_end = std::chrono::high_resolution_clock::now();
-    auto stage_4_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(stage_4_end - stage_4_start)
-            .count();
-    std::cout << "Time taken to merge thread local results: " << stage_4_time << " ms" << std::endl;
-    // -- 4 end --
 
     return result_tensor;
   }

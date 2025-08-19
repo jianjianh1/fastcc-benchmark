@@ -501,7 +501,7 @@ public:
   uint64_t ntiles = 0;
   uint64_t max_inner_val = 0;
 
-  ~TileIndexedTensor() { }//make it leak, for now.
+  ~TileIndexedTensor() { delete indexed_tensor; }//make it leak, for now.
   TileIndexedTensor(){}
   TileIndexedTensor(Tensor<DT> &base_tensor, CoOrdinate index_coords,
                     int tile_size)
