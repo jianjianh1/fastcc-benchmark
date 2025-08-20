@@ -772,9 +772,9 @@ template <class AccType, class RES, class RIGHT>
 
 
     auto indexing_start = std::chrono::high_resolution_clock::now();
+    DT dummy = 0;
     for (int i = 0; i < left_indexed->num_tiles(); i++){
       for (int j = 0; j < right_indexed->num_tiles(); j++){
-          volatile RES dummy = 0;
           auto &left_tile = left_indexed->indexed_tensor[i];
           auto &right_tile = right_indexed->indexed_tensor[j];
 
@@ -832,22 +832,14 @@ template <class AccType, class RES, class RIGHT>
     if(tile_size & (tile_size - 1)){
         tile_size = make_next_power_of_two(tile_size);
     }
-    int num_workers = std::thread::hardware_concurrency();
+    int num_workers = 1;
     init_heaps(num_workers);
 
     TileIndexedTensor<DT>* left_indexed = nullptr;
     TileIndexedTensor<DT>* right_indexed = nullptr;
-    omp_set_nested(1);
 
-#pragma omp parallel num_threads(2)
-    {
-        if(omp_get_thread_num() == 0){
-            left_indexed = new TileIndexedTensor<DT>(*this, left_contr, tile_size);
-        }
-        else{
-            right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
-        }
-    }
+    left_indexed = new TileIndexedTensor<DT>(*this, left_contr, tile_size);
+    right_indexed = new TileIndexedTensor<DT>(other, right_contr, tile_size);
 
     uint64_t left_inner_max = left_indexed->tile_size;
     uint64_t right_inner_max = right_indexed->tile_size;
@@ -861,14 +853,12 @@ template <class AccType, class RES, class RIGHT>
       thread_local_results[_iter] = ListTensor<RES>(result_dimensionality, _iter);
     }
 
-    #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(num_workers) 
     for (int i = 0; i < left_indexed->num_tiles(); i++){
       for (int j = 0; j < right_indexed->num_tiles(); j++){
           auto &left_tile = left_indexed->indexed_tensor[i];
           auto &right_tile = right_indexed->indexed_tensor[j];
 
-          int my_id = omp_get_thread_num();
-          AccType &myacc = thread_local_accumulators[my_id];
+          AccType &myacc = thread_local_accumulators[0];
           myacc.reset_accumulator(i, j);
 
           for (const auto &left_entry : left_tile) {
@@ -886,7 +876,7 @@ template <class AccType, class RES, class RIGHT>
             }
           }
 
-          myacc.drain_into(thread_local_results[my_id],
+          myacc.drain_into(thread_local_results[0],
                            sample_left, sample_right);
       }
     }
