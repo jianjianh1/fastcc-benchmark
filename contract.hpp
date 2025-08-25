@@ -703,6 +703,7 @@ template <class AccType, class RES, class RIGHT>
 
     auto hash_create_end = std::chrono::high_resolution_clock::now();
     auto hash_create_time = std::chrono::duration_cast<std::chrono::microseconds>(hash_create_end - hash_create_start).count();
+    std::cout << "Hash creation time: " << hash_create_time << " microseconds" << std::endl;
 
     uint64_t left_inner_max = left_indexed->tile_size;
     uint64_t right_inner_max = right_indexed->tile_size;
@@ -746,6 +747,7 @@ template <class AccType, class RES, class RIGHT>
     }
     auto compute_end = std::chrono::high_resolution_clock::now();
     auto compute_time = std::chrono::duration_cast<std::chrono::microseconds>(compute_end - compute_start).count();
+    std::cout << "Computation time: " << compute_time << " microseconds" << std::endl;
 
     ListTensor<RES>& result_tensor = thread_local_results[0];
     for (int iter = 1; iter < num_workers; iter++) {
@@ -772,7 +774,6 @@ template <class AccType, class RES, class RIGHT>
 
 
     auto indexing_start = std::chrono::high_resolution_clock::now();
-    DT dummy = 0;
     for (int i = 0; i < left_indexed->num_tiles(); i++){
       for (int j = 0; j < right_indexed->num_tiles(); j++){
           auto &left_tile = left_indexed->indexed_tensor[i];
@@ -785,8 +786,7 @@ template <class AccType, class RES, class RIGHT>
                    left_entry.second) { // loop over (e_l, nnz_l): external
                                         // left, nnz at that external left.
                 for (auto &right_ev : right_entry->second) {
-                  dummy = dummy + left_ev.second * right_ev.second ; // prevent compiler from optimizing this loop
-                  
+                  volatile DT dummy = left_ev.second * right_ev.second ; // prevent compiler from optimizing this loop
                 }
               }
             }
@@ -795,6 +795,7 @@ template <class AccType, class RES, class RIGHT>
     }
     auto indexing_end = std::chrono::high_resolution_clock::now();
     auto indexing_time = std::chrono::duration_cast<std::chrono::microseconds>(indexing_end - indexing_start).count();
+    std::cout << "Indexing time: " << indexing_time << " microseconds" << std::endl;
 
     std::vector<long long> timings;
     timings.push_back(hash_create_time);
