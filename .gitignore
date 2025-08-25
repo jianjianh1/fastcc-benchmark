@@ -88,3 +88,4 @@ unordered_dense/build/
 fastcc_test_tensors/
 *.txt
 !CMakeLists.txt
+*.csv

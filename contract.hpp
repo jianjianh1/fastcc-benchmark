@@ -9,7 +9,6 @@
 #include <ankerl/unordered_dense.h>
 #include <omp.h>
 #include <atomic>
-#include <boost/functional/hash.hpp>
 #include <chrono>
 #include <emhash/hash_table8.hpp>
 #include <forward_list>

@@ -15,6 +15,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 add_executable(benchmark benchmark.cpp)
 add_executable(chem_benchmark chem_benchmark.cpp)
+add_executable(synthetic_benchmark synthetic_benchmark.cpp)
 
 add_subdirectory(abseil-cpp)
 add_subdirectory(unordered_dense)
@@ -61,6 +62,31 @@ target_include_directories(chem_benchmark PRIVATE
 
 # Link Abseil libraries to chem_benchmark
 target_link_libraries(chem_benchmark PRIVATE
+    unordered_dense::unordered_dense
+    absl::container_memory
+    absl::hash_container_defaults
+    absl::raw_hash_set
+    absl::algorithm_container 
+    absl::core_headers
+    absl::memory
+    absl::type_traits
+)
+
+# Add include directories for Abseil
+target_include_directories(synthetic_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/abseil-cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/abseil-cpp/absl
+    ${CMAKE_CURRENT_SOURCE_DIR}/unordered_dense
+    ${CMAKE_CURRENT_SOURCE_DIR}/unordered_dense/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/taskflow
+    ${CMAKE_CURRENT_SOURCE_DIR}/taskflow/taskflow
+    ${CMAKE_CURRENT_SOURCE_DIR}/hopscotch-map
+    ${CMAKE_CURRENT_SOURCE_DIR}/hopscotch-map/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Link Abseil libraries to chem_benchmark
+target_link_libraries(synthetic_benchmark PRIVATE
     unordered_dense::unordered_dense
     absl::container_memory
     absl::hash_container_defaults

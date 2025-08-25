@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <assert.h>
-#include <boost/container_hash/hash.hpp>
 #include "timer.hpp"
 
 #include <cstring>
